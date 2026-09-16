@@ -1,0 +1,12 @@
+{
+  "name": "Quran Innovative Hub — منصة بطاقات وفيديوهات القرآن الكريم 4K",
+  "short_name": "Quran Hub 4K",
+  "description": "مولّد بطاقات ومقاطع قرآنية معتمدة بدقة 4K",
+  "start_url": "/",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#050b0a",
+  "theme_color": "#0a1512",
+  "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

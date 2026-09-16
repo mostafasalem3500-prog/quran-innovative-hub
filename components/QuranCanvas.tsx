@@ -1,178 +1,133 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useEffect, useImperativeHandle, useRef, forwardRef, useState } from "react";
 import { VerseData } from "@/lib/quranData";
+import { CardDesign, RenderAnim, renderCard, ensureFonts, loadImage, physicalSize } from "@/lib/renderer";
 
-interface QuranCanvasProps {
-  verse: VerseData;
-  bgImageUrl: string;
-  aspectRatio: "1:1" | "9:16" | "16:9";
-  showTafseer: boolean;
-  showTranslation: boolean;
-  selectedLangCode: string;
-  fontSize: number;
-  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+export interface QuranCanvasHandle {
+  canvas: HTMLCanvasElement | null;
+  /** إعادة الرسم بحالة حركة معينة (للفيديو) */
+  draw: (anim?: RenderAnim, verseOverride?: VerseData, slate?: { title: string; subtitle: string } | null) => void;
+  media: () => HTMLImageElement | HTMLVideoElement | null;
 }
 
-export default function QuranCanvas({
-  verse,
-  bgImageUrl,
-  aspectRatio,
-  showTafseer,
-  showTranslation,
-  selectedLangCode,
-  fontSize,
-  onCanvasReady
-}: QuranCanvasProps) {
+interface Props {
+  verse: VerseData;
+  design: CardDesign;
+  langCode: string;
+  className?: string;
+  onReady?: () => void;
+}
+
+const isVideoUrl = (u: string) => /\.(mp4|webm|mov)(\?|$)/i.test(u) || u.startsWith("video:");
+
+const QuranCanvas = forwardRef<QuranCanvasHandle, Props>(function QuranCanvas({ verse, design, langCode, className, onReady }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null);
+  const rafRef = useRef<number>(0);
+  const [mediaReady, setMediaReady] = useState(0);
+  const latest = useRef({ verse, design, langCode });
+  latest.current = { verse, design, langCode };
 
+  // تحميل الخلفية (صورة / فيديو)
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    let cancelled = false;
+    const url = design.bgUrl;
+    cancelAnimationFrame(rafRef.current);
+    if (mediaRef.current instanceof HTMLVideoElement) {
+      mediaRef.current.pause();
+      mediaRef.current.src = "";
+    }
+    mediaRef.current = null;
 
-    let width = 1080;
-    let height = 1080;
-    if (aspectRatio === "9:16") height = 1920;
-    if (aspectRatio === "16:9") height = 607;
-
-    canvas.width = width;
-    canvas.height = height;
-
-    const bgImage = new Image();
-    bgImage.crossOrigin = "anonymous";
-    bgImage.src = bgImageUrl;
-
-    const renderContent = () => {
-      // 1. تظليل سينمائي متعدد الطبقات (Vignette & Gradient Overlay)
-      ctx.drawImage(bgImage, 0, 0, width, height);
-      
-      const gradient = ctx.createRadialGradient(
-        width / 2, height / 2, width * 0.1,
-        width / 2, height / 2, width * 0.75
-      );
-      gradient.addColorStop(0, "rgba(15, 23, 42, 0.55)");
-      gradient.addColorStop(1, "rgba(2, 6, 23, 0.88)");
-
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, width, height);
-
-      // 2. إطار زخرفي احترافي محيط بالبطاقة
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.35)";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(24, 24, width - 48, height - 48);
-
-      // 3. الترويسة العليا (اسم السورة والآية بزخرفة ذهبية)
-      ctx.direction = "rtl";
-      ctx.font = "bold 34px 'Traditional Arabic', serif";
-      ctx.fillStyle = "#F59E0B";
-      ctx.textAlign = "center";
-      ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-      ctx.shadowBlur = 10;
-      
-      const topY = height * (aspectRatio === "9:16" ? 0.12 : 0.09);
-      ctx.fillText(`۝ سُورَةُ ${verse.surahName} - آيَة (${verse.verseNumber}) ۝`, width / 2, topY);
-
-      // 4. النص القرآني العثماني بالخط الذهبي الفاخر
-      ctx.font = `bold ${fontSize}px 'Traditional Arabic', serif`;
-      ctx.fillStyle = "#FDE047";
-      ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-      ctx.shadowBlur = 16;
-
-      const verseY = height * (aspectRatio === "9:16" ? 0.28 : aspectRatio === "16:9" ? 0.32 : 0.28);
-      const maxVerseWidth = width * 0.84;
-      const vWords = `﴿ ${verse.textUthmani} ﴾`.split(" ");
-      let vLine = "";
-      let vCurrentY = verseY;
-
-      for (let n = 0; n < vWords.length; n++) {
-        const testLine = vLine + vWords[n] + " ";
-        if (ctx.measureText(testLine).width > maxVerseWidth && n > 0) {
-          ctx.fillText(vLine, width / 2, vCurrentY);
-          vLine = vWords[n] + " ";
-          vCurrentY += fontSize * 1.25;
-        } else {
-          vLine = testLine;
-        }
-      }
-      ctx.fillText(vLine, width / 2, vCurrentY);
-
-      let nextSectionY = vCurrentY + (aspectRatio === "16:9" ? 35 : 50);
-
-      // 5. الترجمة العالمية
-      const translatedText = verse.translations[selectedLangCode];
-      if (showTranslation && translatedText) {
-        ctx.shadowBlur = 0;
-        ctx.direction = selectedLangCode === "ur" ? "rtl" : "ltr";
-        ctx.font = "italic 22px sans-serif";
-        ctx.fillStyle = "#E2E8F0";
-
-        const maxTransWidth = width * 0.82;
-        const tWords = translatedText.split(" ");
-        let tLine = "";
-
-        for (let n = 0; n < tWords.length; n++) {
-          const testLine = tLine + tWords[n] + " ";
-          if (ctx.measureText(testLine).width > maxTransWidth && n > 0) {
-            ctx.fillText(tLine, width / 2, nextSectionY);
-            tLine = tWords[n] + " ";
-            nextSectionY += 30;
-          } else {
-            tLine = testLine;
-          }
-        }
-        ctx.fillText(tLine, width / 2, nextSectionY);
-        nextSectionY += 45;
-      }
-
-      // 6. التفسير العربي المعتمد
-      if (showTafseer && verse.tafseerArabic) {
-        ctx.shadowBlur = 0;
-        ctx.direction = "rtl";
-        
-        ctx.font = "bold 23px sans-serif";
-        ctx.fillStyle = "#F59E0B";
-        ctx.fillText("📖 التَّفْسِيرُ الْمُعْتَمَدُ:", width / 2, nextSectionY);
-
-        ctx.font = "20px sans-serif";
-        ctx.fillStyle = "#F8FAFC";
-        
-        const maxTextWidth = width * 0.84;
-        const tafseerWords = verse.tafseerArabic.split(" ");
-        let tafLine = "";
-        let tafCurrentY = nextSectionY + 36;
-
-        for (let n = 0; n < tafseerWords.length; n++) {
-          const testLine = tafLine + tafseerWords[n] + " ";
-          if (ctx.measureText(testLine).width > maxTextWidth && n > 0) {
-            ctx.fillText(tafLine, width / 2, tafCurrentY);
-            tafLine = tafseerWords[n] + " ";
-            tafCurrentY += 32;
-          } else {
-            tafLine = testLine;
-          }
-        }
-        ctx.fillText(tafLine, width / 2, tafCurrentY);
-      }
-
-      // 7. توثيق مجمع الملك فهد لطباعة المصحف الشريف
-      ctx.direction = "rtl";
-      ctx.font = "17px sans-serif";
-      ctx.fillStyle = "#94A3B8";
-      const footerY = height - (aspectRatio === "9:16" ? 60 : 35);
-      ctx.fillText("✨ موثق من مجمع الملك فهد لطباعة المصحف الشريف ✨", width / 2, footerY);
-
-      if (onCanvasReady) onCanvasReady(canvas);
+    if (!url || url.startsWith("gradient:")) {
+      setMediaReady((n) => n + 1);
+      return;
+    }
+    if (isVideoUrl(url)) {
+      const v = document.createElement("video");
+      v.crossOrigin = "anonymous";
+      v.muted = true;
+      v.loop = true;
+      v.playsInline = true;
+      v.src = url.replace(/^video:/, "");
+      v.onloadeddata = () => {
+        if (cancelled) return;
+        mediaRef.current = v;
+        v.play().catch(() => {});
+        setMediaReady((n) => n + 1);
+      };
+      v.onerror = () => !cancelled && setMediaReady((n) => n + 1);
+      return () => {
+        cancelled = true;
+        v.pause();
+      };
+    }
+    loadImage(url).then((img) => {
+      if (cancelled) return;
+      mediaRef.current = img;
+      setMediaReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
     };
+  }, [design.bgUrl]);
 
-    bgImage.onload = renderContent;
-    if (bgImage.complete) renderContent();
-  }, [verse, bgImageUrl, aspectRatio, showTafseer, showTranslation, selectedLangCode, fontSize]);
+  const draw = (anim?: RenderAnim, verseOverride?: VerseData, slate?: { title: string; subtitle: string } | null) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const { verse: v, design: d, langCode: l } = latest.current;
+    renderCard(c, { verse: verseOverride || v, design: d, langCode: l, media: mediaRef.current, anim, slate: slate || null });
+  };
+
+  // الرسم عند أي تغيير + حلقة مستمرة لخلفيات الفيديو
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      await ensureFonts(design);
+      if (!alive) return;
+      draw();
+      onReady?.();
+      if (mediaRef.current instanceof HTMLVideoElement) {
+        const loop = () => {
+          if (!alive) return;
+          draw();
+          rafRef.current = requestAnimationFrame(loop);
+        };
+        rafRef.current = requestAnimationFrame(loop);
+      }
+    })();
+    return () => {
+      alive = false;
+      cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verse, design, langCode, mediaReady]);
+
+  useImperativeHandle(ref, () => ({
+    get canvas() {
+      return canvasRef.current;
+    },
+    draw,
+    media: () => mediaRef.current,
+  }));
+
+  const [pw, ph] = physicalSize(design.aspect, design.resolution);
 
   return (
-    <div className="relative group flex justify-center items-center shadow-2xl rounded-3xl overflow-hidden border border-slate-700/80 bg-slate-950 p-2 transition-all duration-300 hover:border-emerald-500/50">
-      <canvas ref={canvasRef} className="max-w-full h-auto max-h-[72vh] object-contain rounded-2xl shadow-inner" />
+    <div className={`relative flex items-center justify-center ${className || ""}`}>
+      <canvas
+        ref={canvasRef}
+        width={pw}
+        height={ph}
+        className="max-h-[72vh] max-w-full rounded-2xl object-contain shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10"
+        style={{ aspectRatio: `${pw}/${ph}` }}
+      />
+      <span dir="ltr" className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold text-gold-300 ring-1 ring-gold-500/40">
+        {pw}×{ph}
+      </span>
     </div>
   );
-}
+});
+
+export default QuranCanvas;

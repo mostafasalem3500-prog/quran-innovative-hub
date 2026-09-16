@@ -1,20 +1,28 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import QuranCanvas from "@/components/QuranCanvas";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import QuranCanvas, { QuranCanvasHandle } from "@/components/QuranCanvas";
+import { Section, Toggle, Slider, SelectField, Segmented, Toasts, useToasts, useLocalState } from "@/components/ui";
 import {
   fetchVerseDetails,
-  SURAHS_LIST,
+  fetchVerseRange,
+  SURAHS,
+  getSurah,
   BACKGROUND_LIBRARY,
   TAFSEER_OPTIONS,
   TRANSLATION_LANGUAGES,
   RECITERS_LIST,
-  VerseData
+  VerseData,
+  ayahAudioFallbacks,
+  randomVerseRef,
+  toArabicDigits,
+  clearQuranCache,
 } from "@/lib/quranData";
+import { CardDesign, DEFAULT_DESIGN, THEMES, QURAN_FONTS, PRESETS, physicalSize, AspectRatio, Resolution } from "@/lib/renderer";
+import { exportImage, exportBatchZip, recordVideo, VideoJob, VideoOptions, buildCaption, downloadBlob, pickMime } from "@/lib/exporter";
 import {
   Download,
   Sparkles,
-  Send,
   Image as ImageIcon,
   Type,
   Globe,
@@ -27,391 +35,872 @@ import {
   BookOpen,
   Layers,
   Radio,
-  Repeat
+  Repeat,
+  Palette,
+  Film,
+  Upload,
+  Copy,
+  Share2,
+  Shuffle,
+  RotateCcw,
+  Settings2,
+  Volume2,
+  Gauge,
+  Frame,
+  SlidersHorizontal,
+  Package,
+  FileJson,
+  StopCircle,
+  Keyboard,
+  Shield,
+  Search,
+  Wand2,
 } from "lucide-react";
 
+type Tab = "verse" | "design" | "audio" | "export";
+
+const INITIAL_DESIGN: CardDesign = { ...DEFAULT_DESIGN, bgUrl: BACKGROUND_LIBRARY[0].url };
+
 export default function Home() {
-  const [surah, setSurah] = useState<number>(111); // سورة المسد افتراضياً للتجربة
+  // ─────────────── الحالة الأساسية ───────────────
+  const [surah, setSurah] = useState<number>(111);
   const [verseNum, setVerseNum] = useState<number>(1);
   const [endVerseNum, setEndVerseNum] = useState<number>(5);
-  const [reciterId, setReciterId] = useState<string>("ar.hudhaify");
-  const [tafseerEd, setTafseerEd] = useState<string>("ar.muyassar");
-  const [langCode, setLangCode] = useState<string>("en");
+  const [reciterId, setReciterId] = useLocalState<string>("qh:reciter", "ar.hudhaify");
+  const [tafseerId, setTafseerId] = useLocalState<string>("qh:tafseer", "muyassar");
+  const [langCode, setLangCode] = useLocalState<string>("qh:lang", "en");
+  const [design, setDesign] = useLocalState<CardDesign>("qh:design", INITIAL_DESIGN);
+  const [videoOpts, setVideoOpts] = useLocalState<VideoOptions>("qh:video", {
+    fps: 30,
+    introSlate: true,
+    outroSlate: true,
+    slateSeconds: 3,
+    gapSeconds: 0.6,
+    repeat: 1,
+    monitor: true,
+    channelName: "",
+  });
+
   const [verseData, setVerseData] = useState<VerseData | null>(null);
-
-  const [aspectRatio, setAspectRatio] = useState<"1:1" | "9:16" | "16:9">("9:16");
-  const [showTafseer, setShowTafseer] = useState(true);
-  const [showTranslation, setShowTranslation] = useState(true);
-  const [fontSize, setFontSize] = useState<number>(52);
-  const [bgImage, setBgImage] = useState(BACKGROUND_LIBRARY[0].url);
-
-  const [canvasInstance, setCanvasInstance] = useState<HTMLCanvasElement | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [continuousPlay, setContinuousPlay] = useState(true); // التلاوة المستمرة
-  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [tab, setTab] = useState<Tab>("verse");
+  const [surahQuery, setSurahQuery] = useState("");
 
-  // 1. جلب بيانات الآية وتحديث الحدود الذكية لأعداد السورة
+  // الصوت
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [continuousPlay, setContinuousPlay] = useLocalState("qh:continuous", true);
+  const [loopVerse, setLoopVerse] = useState(false);
+  const [volume, setVolume] = useLocalState("qh:volume", 1);
+  const [rate, setRate] = useState(1);
+  const [audioProgress, setAudioProgress] = useState(0);
+
+  // التصدير
+  const canvasHandle = useRef<QuranCanvasHandle | null>(null);
+  const [recording, setRecording] = useState<{ phase: string; percent: number; verseIndex: number; total: number } | null>(null);
+  const jobRef = useRef<VideoJob | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const batchSignal = useRef({ cancelled: false });
+  const [imageFormat, setImageFormat] = useState<"png" | "jpg" | "webp">("png");
+  const [caption, setCaption] = useState("");
+  const [lastVideo, setLastVideo] = useState<{ url: string; ext: string; size: number } | null>(null);
+
+  const { toasts, push, remove } = useToasts();
+  const meta = getSurah(surah);
+  const upd = useCallback((patch: Partial<CardDesign>) => setDesign((d) => ({ ...d, ...patch })), [setDesign]);
+
+  // ─────────────── قراءة الرابط عند البدء ───────────────
   useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const s = parseInt(p.get("s") || "");
+    const v = parseInt(p.get("v") || "");
+    const to = parseInt(p.get("to") || "");
+    if (s >= 1 && s <= 114) {
+      setSurah(s);
+      const m = getSurah(s);
+      setVerseNum(v >= 1 && v <= m.ayahs ? v : 1);
+      setEndVerseNum(to >= 1 && to <= m.ayahs ? to : Math.min(m.ayahs, (v || 1) + 4));
+    }
+    const r = p.get("r");
+    if (r && RECITERS_LIST.some((x) => x.id === r)) setReciterId(r);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─────────────── جلب بيانات الآية ───────────────
+  useEffect(() => {
+    let alive = true;
     setLoading(true);
-    fetchVerseDetails(surah, verseNum, reciterId, tafseerEd, langCode).then((data) => {
+    fetchVerseDetails(surah, verseNum, reciterId, tafseerId, langCode).then((data) => {
+      if (!alive) return;
       setVerseData(data);
-      setEndVerseNum(data.totalVersesInSurah); // تعيين نهاية الآية الفعلية للسورة تلقائياً
       setLoading(false);
     });
-  }, [surah, verseNum, reciterId, tafseerEd, langCode]);
-
-  // 2. محرك التلاوة المستمرة والتنقل بين الآيات
-  const playVerseAudio = (audioUrl: string) => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-    }
-    audioRef.current.src = audioUrl;
-
-    audioRef.current.onended = () => {
-      if (continuousPlay && verseData && verseNum < verseData.totalVersesInSurah) {
-        setVerseNum((prev) => prev + 1); // للانتقال التلقائي للآية التالية
-      } else {
-        setIsPlaying(false);
-      }
+    return () => {
+      alive = false;
     };
+  }, [surah, verseNum, reciterId, tafseerId, langCode]);
 
-    audioRef.current.play().then(() => {
-      setIsPlaying(true);
-    }).catch(() => setIsPlaying(false));
-  };
+  // ضبط نطاق النهاية عند تغيير السورة
+  useEffect(() => {
+    setEndVerseNum((e) => Math.min(Math.max(e, verseNum), meta.ayahs));
+  }, [surah, verseNum, meta.ayahs]);
+
+  // ─────────────── مشغّل الصوت ───────────────
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+    }
+    setIsPlaying(false);
+    setAudioProgress(0);
+  }, []);
+
+  const playVerse = useCallback(
+    (v: VerseData) => {
+      if (!audioRef.current) audioRef.current = new Audio();
+      const a = audioRef.current;
+      const urls = [v.audioUrl, ...ayahAudioFallbacks(reciterId, v.surahNumber, v.verseNumber)];
+      let idx = 0;
+      a.volume = volume;
+      a.playbackRate = rate;
+      a.src = urls[idx];
+      a.onerror = () => {
+        idx++;
+        if (idx < urls.length) {
+          a.src = urls[idx];
+          a.play().catch(() => setIsPlaying(false));
+        } else {
+          push("error", "تعذّر تحميل تلاوة هذه الآية لهذا القارئ — جرّب قارئاً آخر");
+          setIsPlaying(false);
+        }
+      };
+      a.ontimeupdate = () => setAudioProgress(a.duration ? a.currentTime / a.duration : 0);
+      a.onended = () => {
+        if (loopVerse) {
+          a.currentTime = 0;
+          a.play();
+          return;
+        }
+        if (continuousPlay && verseNum < meta.ayahs) setVerseNum((p) => p + 1);
+        else setIsPlaying(false);
+      };
+      a.play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setIsPlaying(false));
+    },
+    [reciterId, volume, rate, loopVerse, continuousPlay, verseNum, meta.ayahs, push]
+  );
+
+  // متابعة التلاوة المستمرة عند تغيّر الآية
+  const wasPlaying = useRef(false);
+  useEffect(() => {
+    wasPlaying.current = isPlaying;
+  }, [isPlaying]);
+  useEffect(() => {
+    if (verseData && wasPlaying.current && !recording) playVerse(verseData);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verseData]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+      audioRef.current.playbackRate = rate;
+    }
+  }, [volume, rate]);
 
   const toggleAudio = () => {
-    if (!verseData?.audioUrl) return;
-
-    if (isPlaying && audioRef.current) {
-      audioRef.current.pause();
+    if (!verseData) return;
+    if (isPlaying) {
+      audioRef.current?.pause();
       setIsPlaying(false);
-    } else {
-      playVerseAudio(verseData.audioUrl);
-    }
+    } else if (audioRef.current && audioRef.current.src && audioRef.current.currentTime > 0 && !audioRef.current.ended) {
+      audioRef.current.play().then(() => setIsPlaying(true));
+    } else playVerse(verseData);
   };
 
-  const handleNextVerse = () => {
-    if (verseData && verseNum < verseData.totalVersesInSurah) {
-      setVerseNum((prev) => prev + 1);
-    }
+  const goVerse = (n: number) => {
+    stopAudio();
+    setVerseNum(Math.min(meta.ayahs, Math.max(1, n)));
   };
 
-  const handlePrevVerse = () => {
-    if (verseNum > 1) {
-      setVerseNum((prev) => prev - 1);
-    }
+  // ─────────────── اختصارات لوحة المفاتيح ───────────────
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        toggleAudio();
+      } else if (e.key === "ArrowLeft") goVerse(verseNum + 1);
+      else if (e.key === "ArrowRight") goVerse(verseNum - 1);
+      else if (e.key.toLowerCase() === "s") handleDownload();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  });
+
+  // ─────────────── التصدير ───────────────
+  const handleDownload = async () => {
+    const c = canvasHandle.current?.canvas;
+    if (!c || !verseData) return;
+    canvasHandle.current?.draw({ t: 0, enter: 1, progress: 0 });
+    await exportImage(c, verseData, imageFormat);
+    push("success", `تم تنزيل البطاقة بدقة ${c.width}×${c.height}`);
   };
 
-  // 3. تصدير مقطع فيديو MP4 بنطاق الآيات المحددة
-  const handleExportReelsVideo = async () => {
-    if (!canvasInstance) return;
-    setIsRecordingVideo(true);
-
+  const handleBatch = async () => {
+    if (!verseData) return;
+    batchSignal.current = { cancelled: false };
+    setBatchProgress({ done: 0, total: endVerseNum - verseNum + 1 });
     try {
-      const canvasStream = canvasInstance.captureStream(30);
-      const mediaRecorder = new MediaRecorder(canvasStream, {
-        mimeType: MediaRecorder.isTypeSupported("video/mp4") ? "video/mp4" : "video/webm"
-      } as MediaRecorderOptions);
-
-      const chunks: Blob[] = [];
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "video/mp4" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `Quran_Video_${surah}_Verse_${verseNum}_to_${endVerseNum}.mp4`;
-        a.click();
-        setIsRecordingVideo(false);
-      };
-
-      mediaRecorder.start();
-
-      for (let v = verseNum; v <= endVerseNum; v++) {
-        const currentData = await fetchVerseDetails(surah, v, reciterId, tafseerEd, langCode);
-        setVerseData(currentData);
-
-        await new Promise<void>((resolve) => {
-          const tempAudio = new Audio(currentData.audioUrl);
-          tempAudio.play().catch(() => resolve());
-          tempAudio.onended = () => resolve();
-        });
-      }
-
-      mediaRecorder.stop();
-    } catch (err) {
-      console.error(err);
-      setIsRecordingVideo(false);
+      const verses = await fetchVerseRange(surah, verseNum, endVerseNum, reciterId, tafseerId, langCode, (d, t) => setBatchProgress({ done: 0, total: t }));
+      await exportBatchZip(verses, design, langCode, imageFormat === "jpg" ? "jpg" : "png", (d, t) => setBatchProgress({ done: d, total: t }), batchSignal.current);
+      push("success", `تم تصدير ${verses.length} بطاقة في ملف ZIP`);
+    } catch (e) {
+      push("error", "فشل تصدير الدفعة");
+    } finally {
+      setBatchProgress(null);
     }
   };
 
-  const handleDownload = () => {
-    if (!canvasInstance || !verseData) return;
-    const link = document.createElement("a");
-    link.download = `Quran_${verseData.surahName}_Verse_${verseData.verseNumber}.png`;
-    link.href = canvasInstance.toDataURL("image/png");
-    link.click();
+  const handleVideo = async () => {
+    const c = canvasHandle.current?.canvas;
+    if (!c || !verseData || recording) return;
+    stopAudio();
+    setLastVideo(null);
+    setRecording({ phase: "تحميل الآيات", percent: 0, verseIndex: 0, total: endVerseNum - verseNum + 1 });
+    try {
+      const verses = await fetchVerseRange(surah, verseNum, endVerseNum, reciterId, tafseerId, langCode);
+      const job = recordVideo({
+        canvas: c,
+        draw: (anim, v, slate) => canvasHandle.current?.draw(anim, v, slate),
+        verses,
+        reciterId,
+        design,
+        options: { ...videoOpts, channelName: videoOpts.channelName || design.channelName },
+        onProgress: (info) => setRecording(info),
+      });
+      jobRef.current = job;
+      const result = await job.done;
+      if (result) {
+        const name = `Quran_${meta.name}_${verseNum}-${endVerseNum}_${c.width}x${c.height}.${result.ext}`;
+        downloadBlob(result.blob, name);
+        setLastVideo({ url: URL.createObjectURL(result.blob), ext: result.ext, size: result.blob.size });
+        push("success", `تم إنتاج الفيديو (${(result.blob.size / 1048576).toFixed(1)} MB) بصيغة ${result.ext.toUpperCase()}`);
+      } else push("info", "تم إلغاء التسجيل");
+    } catch (e) {
+      console.error(e);
+      push("error", "تعذّر إنتاج الفيديو — تأكد من استخدام متصفح Chrome/Edge حديث");
+    } finally {
+      setRecording(null);
+      jobRef.current = null;
+      canvasHandle.current?.draw();
+    }
   };
 
+  const handleCaption = async () => {
+    const verses = await fetchVerseRange(surah, verseNum, endVerseNum, reciterId, tafseerId, langCode);
+    const text = buildCaption(verses, langCode, design.channelName);
+    setCaption(text);
+    try {
+      await navigator.clipboard.writeText(text);
+      push("success", "تم نسخ نص المنشور إلى الحافظة");
+    } catch {}
+  };
+
+  const shareLink = async () => {
+    const url = `${location.origin}${location.pathname}?s=${surah}&v=${verseNum}&to=${endVerseNum}&r=${reciterId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      push("success", "تم نسخ رابط المشاركة");
+    } catch {
+      push("info", url);
+    }
+  };
+
+  const exportSettings = () => {
+    const blob = new Blob([JSON.stringify({ design, reciterId, tafseerId, langCode, videoOpts }, null, 2)], { type: "application/json" });
+    downloadBlob(blob, "quran-hub-settings.json");
+  };
+  const importSettings = (file: File) => {
+    file.text().then((t) => {
+      try {
+        const j = JSON.parse(t);
+        if (j.design) setDesign({ ...INITIAL_DESIGN, ...j.design });
+        if (j.reciterId) setReciterId(j.reciterId);
+        if (j.tafseerId) setTafseerId(j.tafseerId);
+        if (j.langCode) setLangCode(j.langCode);
+        if (j.videoOpts) setVideoOpts(j.videoOpts);
+        push("success", "تم استيراد الإعدادات");
+      } catch {
+        push("error", "ملف إعدادات غير صالح");
+      }
+    });
+  };
+
+  const uploadBackground = (file: File) => {
+    const url = URL.createObjectURL(file);
+    upd({ bgUrl: file.type.startsWith("video/") ? `video:${url}` : url });
+    push("success", file.type.startsWith("video/") ? "تم تعيين فيديو الخلفية" : "تم تعيين صورة الخلفية");
+  };
+
+  const filteredSurahs = useMemo(() => {
+    const q = surahQuery.trim().toLowerCase();
+    if (!q) return SURAHS;
+    return SURAHS.filter((s) => s.name.includes(q) || s.englishName.toLowerCase().includes(q) || String(s.number) === q);
+  }, [surahQuery]);
+
+  const [pw, ph] = physicalSize(design.aspect, design.resolution);
+  const rangeCount = Math.max(1, endVerseNum - verseNum + 1);
+  const mimeInfo = useMemo(() => (typeof window !== "undefined" && "MediaRecorder" in window ? pickMime() : { mime: "", ext: "-" }), []);
+
+  // ═══════════════════════════════ الواجهة ═══════════════════════════════
   return (
-    <main dir="rtl" className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* الترويسة الرئيسية */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-xl p-4 flex justify-between items-center px-8 sticky top-0 z-50">
-        <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-amber-300 flex items-center gap-2.5">
-          <Radio className="w-6 h-6 text-amber-400 animate-pulse" /> البث المباشر لمنصة القرآن الكريم 4K
-        </h1>
-        <span className="text-xs font-semibold bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 px-3.5 py-1.5 rounded-full shadow-lg">
-          ✨ مجمع الملك فهد لطباعة المصحف الشريف
-        </span>
+    <main dir="rtl" className="flex min-h-screen flex-col">
+      {/* الترويسة */}
+      <header className="glass sticky top-0 z-50 border-b border-gold-500/10">
+        <div className="mx-auto flex max-w-[1700px] flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
+          <div className="flex items-center gap-3">
+            <div className="relative grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-gold-500/30 to-emerald-500/20 ring-1 ring-gold-500/40">
+              <Radio className="h-5 w-5 text-gold-300" />
+              <span className="absolute -right-1 -top-1 h-3 w-3 animate-ping rounded-full bg-red-500/70" />
+              <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500" />
+            </div>
+            <div>
+              <h1 className="gold-text animate-shimmer text-lg font-black leading-tight md:text-xl">Quran Innovative Hub — استوديو البطاقات والفيديو 4K</h1>
+              <p className="text-[11px] text-slate-400">مولّد منشورات ومقاطع قرآنية معتمدة • نص مصحف المدينة النبوية</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="chip border-emerald-500/30 bg-emerald-950/60 text-emerald-300">
+              <BookOpen className="h-3 w-3" /> ١١٤ سورة
+            </span>
+            <span className="chip border-gold-500/30 bg-gold-500/10 text-gold-300">
+              <Mic className="h-3 w-3" /> {toArabicDigits(RECITERS_LIST.length)} قارئاً
+            </span>
+            <span className="chip border-sky-500/30 bg-sky-950/60 text-sky-300">
+              <Layers className="h-3 w-3" /> {toArabicDigits(TAFSEER_OPTIONS.length)} تفاسير
+            </span>
+            <span className="chip border-fuchsia-500/30 bg-fuchsia-950/60 text-fuchsia-300">
+              <Globe className="h-3 w-3" /> {toArabicDigits(TRANSLATION_LANGUAGES.length)} لغة
+            </span>
+            <button
+              className="btn-ghost !px-3 !py-1.5 text-xs"
+              onClick={() => {
+                const r = randomVerseRef();
+                stopAudio();
+                setSurah(r.surah);
+                setVerseNum(r.verse);
+                setEndVerseNum(Math.min(getSurah(r.surah).ayahs, r.verse + 2));
+                push("info", `آية عشوائية: سورة ${getSurah(r.surah).name} — الآية ${r.verse}`);
+              }}
+            >
+              <Shuffle className="h-3.5 w-3.5 text-gold-300" /> آية عشوائية
+            </button>
+            <button className="btn-ghost !px-3 !py-1.5 text-xs" onClick={shareLink}>
+              <Share2 className="h-3.5 w-3.5 text-emerald-300" /> مشاركة
+            </button>
+          </div>
+        </div>
       </header>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-8 p-8 max-w-[1600px] mx-auto w-full">
-        {/* العارض المباشر ومغير الآيات */}
-        <div className="lg:col-span-2 flex flex-col justify-between items-center bg-slate-900/40 backdrop-blur-md rounded-3xl p-6 border border-slate-800/80 shadow-2xl relative">
-          
-          <div className="flex justify-between items-center w-full mb-4 px-2">
-            <button
-              onClick={handlePrevVerse}
-              disabled={verseNum <= 1}
-              className="flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-2xl transition disabled:opacity-30 border border-slate-700/60 text-sm font-medium"
-            >
-              <ChevronRight className="w-4 h-4 text-emerald-400" /> الآية السابقة
+      <div className="mx-auto grid w-full max-w-[1700px] flex-1 grid-cols-1 gap-5 p-4 md:p-6 lg:grid-cols-12">
+        {/* ─────────── العارض ─────────── */}
+        <section className="card flex flex-col lg:col-span-7 xl:col-span-8">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <button onClick={() => goVerse(verseNum - 1)} disabled={verseNum <= 1 || !!recording} className="btn-ghost !py-2 text-xs">
+              <ChevronRight className="h-4 w-4 text-emerald-400" /> السابقة
             </button>
-            
-            <div className="flex items-center gap-3 bg-slate-950/80 border border-amber-500/30 px-5 py-2 rounded-2xl">
-              <BookOpen className="w-4 h-4 text-amber-400" />
-              <span className="text-slate-200 font-bold text-base">
-                سورة <span className="text-emerald-400">{verseData?.surahName}</span> - الآية (<span className="text-amber-400">{verseData?.verseNumber}</span> من {verseData?.totalVersesInSurah})
+            <div className="flex items-center gap-3 rounded-2xl border border-gold-500/25 bg-night-950/80 px-5 py-2">
+              <BookOpen className="h-4 w-4 text-gold-400" />
+              <span className="text-sm font-bold text-slate-200">
+                سورة <span className="text-emerald-300">{meta.name}</span>
+                <span className="mx-1.5 text-slate-600">|</span>
+                الآية <span className="text-gold-300">{toArabicDigits(verseNum)}</span> من {toArabicDigits(meta.ayahs)}
+                <span className="mx-1.5 text-slate-600">|</span>
+                <span className="text-xs text-slate-400">{meta.revelation}</span>
               </span>
             </div>
-
-            <button
-              onClick={handleNextVerse}
-              disabled={verseData ? verseNum >= verseData.totalVersesInSurah : false}
-              className="flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-2xl transition disabled:opacity-30 border border-slate-700/60 text-sm font-medium"
-            >
-              الآية التالية <ChevronLeft className="w-4 h-4 text-emerald-400" />
+            <button onClick={() => goVerse(verseNum + 1)} disabled={verseNum >= meta.ayahs || !!recording} className="btn-ghost !py-2 text-xs">
+              التالية <ChevronLeft className="h-4 w-4 text-emerald-400" />
             </button>
           </div>
 
-          {loading || !verseData ? (
-            <div className="flex flex-col items-center justify-center py-40 gap-4">
-              <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <div className="text-slate-400 font-medium animate-pulse">جاري تحميل النص والتفسير المعتمد...</div>
+          <div className="relative flex flex-1 items-center justify-center rounded-3xl border border-white/5 bg-[radial-gradient(ellipse_at_center,rgba(212,169,74,0.06),transparent_60%)] p-3">
+            {(loading && !verseData) || !verseData ? (
+              <div className="flex flex-col items-center gap-4 py-40">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-gold-400 border-t-transparent" />
+                <div className="animate-pulse text-sm text-slate-400">جاري تحميل النص والتفسير المعتمد…</div>
+              </div>
+            ) : (
+              <QuranCanvas ref={canvasHandle} verse={verseData} design={design} langCode={langCode} />
+            )}
+            {loading && verseData && <div className="absolute left-4 top-4 h-5 w-5 animate-spin rounded-full border-2 border-gold-400 border-t-transparent" />}
+
+            {recording && (
+              <div className="absolute inset-x-6 bottom-6 rounded-2xl border border-red-500/40 bg-black/80 p-4 backdrop-blur-md">
+                <div className="mb-2 flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-2 font-bold text-red-300">
+                    <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" /> جاري التسجيل — {recording.phase}
+                  </span>
+                  <span className="text-slate-300">
+                    الآية {recording.verseIndex + 1}/{recording.total} • {recording.percent}%
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full bg-gradient-to-l from-gold-500 to-red-500 transition-all" style={{ width: `${recording.percent}%` }} />
+                </div>
+                <button onClick={() => jobRef.current?.cancel()} className="btn-ghost mt-3 w-full !py-2 text-xs text-red-200">
+                  <StopCircle className="h-4 w-4" /> إيقاف وحفظ ما تم تسجيله
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* مشغّل التلاوة */}
+          <div className="mt-4 rounded-2xl border border-white/5 bg-night-950/70 p-3">
+            <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full bg-gradient-to-l from-emerald-400 to-gold-400 transition-[width] duration-200" style={{ width: `${audioProgress * 100}%` }} />
             </div>
-          ) : (
-            <QuranCanvas
-              verse={verseData}
-              bgImageUrl={bgImage}
-              aspectRatio={aspectRatio}
-              showTafseer={showTafseer}
-              showTranslation={showTranslation}
-              selectedLangCode={langCode}
-              fontSize={fontSize}
-              onCanvasReady={(canvas) => setCanvasInstance(canvas)}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={toggleAudio} disabled={!!recording} className={`btn-gold !rounded-full !px-5 ${isPlaying ? "animate-pulse" : ""}`}>
+                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                {isPlaying ? "إيقاف مؤقت" : "استماع"}
+              </button>
+              <button onClick={() => setContinuousPlay(!continuousPlay)} className={`btn !py-2 text-xs ${continuousPlay ? "border border-emerald-500/60 bg-emerald-950/70 text-emerald-200" : "btn-ghost"}`}>
+                <Repeat className="h-4 w-4" /> تلاوة مستمرة
+              </button>
+              <button onClick={() => setLoopVerse(!loopVerse)} className={`btn !py-2 text-xs ${loopVerse ? "border border-gold-500/60 bg-gold-500/10 text-gold-200" : "btn-ghost"}`}>
+                <RotateCcw className="h-4 w-4" /> تكرار الآية
+              </button>
+              <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-night-900 px-3 py-1.5">
+                <Volume2 className="h-4 w-4 text-slate-400" />
+                <input type="range" min={0} max={1} step={0.05} value={volume} style={{ ["--pct" as any]: `${volume * 100}%`, width: 90 }} onChange={(e) => setVolume(parseFloat(e.target.value))} />
+              </div>
+              <div className="flex items-center gap-1 rounded-xl border border-white/5 bg-night-900 px-2 py-1">
+                <Gauge className="h-4 w-4 text-slate-400" />
+                {[0.75, 1, 1.25, 1.5].map((r) => (
+                  <button key={r} onClick={() => setRate(r)} className={`rounded-lg px-2 py-0.5 text-[11px] font-bold ${rate === r ? "bg-gold-500 text-night-950" : "text-slate-400 hover:text-white"}`}>
+                    {r}×
+                  </button>
+                ))}
+              </div>
+              <span className="mr-auto text-[11px] text-slate-500">
+                <Mic className="inline h-3 w-3" /> {verseData?.reciterName}
+              </span>
+            </div>
+          </div>
+
+          {/* أزرار سريعة */}
+          <div className="mt-4 flex flex-wrap justify-center gap-2.5">
+            <button onClick={handleDownload} disabled={!verseData || !!recording} className="btn-emerald">
+              <Download className="h-5 w-5" /> تنزيل بطاقة {design.resolution === "4k" ? "4K" : design.resolution === "2k" ? "2K" : "HD"} ({imageFormat.toUpperCase()})
+            </button>
+            <button onClick={handleVideo} disabled={!verseData || !!recording} className="btn bg-gradient-to-l from-fuchsia-600 to-purple-600 text-white shadow-lg hover:brightness-110">
+              <Video className="h-5 w-5" /> إنتاج فيديو بصوت ({toArabicDigits(rangeCount)} آية)
+            </button>
+            <button onClick={handleCaption} disabled={!verseData} className="btn-ghost">
+              <Copy className="h-4 w-4 text-gold-300" /> نسخ نص المنشور
+            </button>
+            <button onClick={() => setTab("export")} className="btn-ghost">
+              <Package className="h-4 w-4 text-sky-300" /> خيارات التصدير
+            </button>
+          </div>
+
+          {lastVideo && (
+            <div className="mt-4 animate-fadeUp rounded-2xl border border-emerald-500/30 bg-emerald-950/30 p-3">
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span className="font-bold text-emerald-200">
+                  <Film className="ml-1 inline h-4 w-4" /> آخر فيديو مُنتج — {(lastVideo.size / 1048576).toFixed(1)} MB ({lastVideo.ext.toUpperCase()})
+                </span>
+                <a className="text-gold-300 underline" href={lastVideo.url} download={`Quran_${meta.name}_${verseNum}-${endVerseNum}.${lastVideo.ext}`}>
+                  إعادة التنزيل
+                </a>
+              </div>
+              <video src={lastVideo.url} controls className="max-h-64 w-full rounded-xl bg-black" />
+            </div>
           )}
 
-          {/* أزرار التشغيل والتصدير */}
-          <div className="flex flex-wrap gap-3.5 mt-6 justify-center w-full">
-            <button
-              onClick={toggleAudio}
-              className={`flex items-center gap-2 font-semibold px-6 py-3 rounded-2xl transition-all duration-300 shadow-lg ${
-                isPlaying
-                  ? "bg-amber-600 hover:bg-amber-500 text-white shadow-amber-900/40 animate-pulse"
-                  : "bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 text-white shadow-amber-950/50 hover:scale-105"
-              }`}
-            >
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-              {isPlaying ? "إيقاف البث" : "استماع للتلاوة"}
-            </button>
+          <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[10px] text-slate-500">
+            <Keyboard className="h-3 w-3" /> اختصارات: مسافة = تشغيل/إيقاف • ← → = التنقل بين الآيات • S = تنزيل البطاقة
+          </p>
+        </section>
 
-            <button
-              onClick={() => setContinuousPlay(!continuousPlay)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-medium border transition ${
-                continuousPlay
-                  ? "bg-emerald-950/80 border-emerald-500 text-emerald-300"
-                  : "bg-slate-800/60 border-slate-700 text-slate-400"
-              }`}
-            >
-              <Repeat className="w-4 h-4" />
-              تلاوة مستمرة: {continuousPlay ? "مفعلة" : "معطلة"}
-            </button>
-
-            <button
-              onClick={handleDownload}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-6 py-3 rounded-2xl transition shadow-lg hover:scale-105"
-            >
-              <Download className="w-5 h-5" /> تنزيل صورة 4K
-            </button>
-
-            <button
-              onClick={handleExportReelsVideo}
-              disabled={isRecordingVideo}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold px-6 py-3 rounded-2xl transition shadow-lg disabled:opacity-50 hover:scale-105"
-            >
-              <Video className="w-5 h-5" />
-              {isRecordingVideo ? "جاري إنتاج الفيديو..." : "تصدير فيديو MP4 (Reels)"}
-            </button>
-          </div>
-        </div>
-
-        {/* لوحة التحكم الاحترافية والربط الديناميكي */}
-        <div className="bg-slate-900/60 backdrop-blur-xl rounded-3xl p-6 border border-slate-800/80 shadow-2xl flex flex-col gap-5">
-          <h2 className="text-lg font-bold text-slate-100 border-b border-slate-800/80 pb-3 flex items-center gap-2">
-            <Layers className="w-5 h-5 text-emerald-400" /> ⚙️ إعدادات البث والقراء
-          </h2>
-
-          <div className="space-y-4">
-            {/* اختيار السورة مع تحديث الحدود المباشر */}
-            <div>
-              <label className="text-xs font-semibold text-slate-400 block mb-1.5">اختيار السورة القرآنية:</label>
-              <select
-                value={surah}
-                onChange={(e) => {
-                  const s = parseInt(e.target.value);
-                  setSurah(s);
-                  setVerseNum(1); // البدء من الآية الأولى تلقائياً
-                }}
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-slate-100 font-medium focus:border-emerald-500 focus:outline-none"
+        {/* ─────────── لوحة التحكم ─────────── */}
+        <aside className="card flex flex-col gap-4 lg:col-span-5 xl:col-span-4">
+          <div className="grid grid-cols-4 gap-1 rounded-2xl bg-night-950/80 p-1">
+            {(
+              [
+                ["verse", "الآية", <BookOpen key="1" className="h-4 w-4" />],
+                ["design", "التصميم", <Palette key="2" className="h-4 w-4" />],
+                ["audio", "الصوت", <Mic key="3" className="h-4 w-4" />],
+                ["export", "التصدير", <Package key="4" className="h-4 w-4" />],
+              ] as [Tab, string, React.ReactNode][]
+            ).map(([id, label, icon]) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-extrabold transition ${
+                  tab === id ? "bg-gradient-to-l from-gold-500 to-gold-300 text-night-950 shadow-glow" : "text-slate-400 hover:bg-night-800 hover:text-white"
+                }`}
               >
-                {SURAHS_LIST.map((name, idx) => (
-                  <option key={idx + 1} value={idx + 1}>
-                    {idx + 1}. سورة {name}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {icon} {label}
+              </button>
+            ))}
+          </div>
 
-            {/* نطاق الآيات لسورة المسد والسور الأخرى */}
-            <div className="bg-slate-950/80 p-4 rounded-2xl border border-amber-500/20 shadow-inner">
-              <label className="text-xs font-bold text-amber-400 block mb-2 flex items-center gap-1.5">
-                <Video className="w-4 h-4" /> 🎬 نطاق مقطع الفيديو (من - إلى):
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-[11px] text-slate-400 block mb-1">من آية:</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max={verseData?.totalVersesInSurah || 1}
-                    value={verseNum}
-                    onChange={(e) => setVerseNum(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-100 text-sm font-bold text-center"
+          <div className="flex max-h-[calc(100vh-190px)] flex-col gap-3 overflow-y-auto pl-1">
+            {/* ═════ تبويب الآية ═════ */}
+            {tab === "verse" && (
+              <>
+                <Section title="اختيار السورة والآيات" icon={<BookOpen className="h-4 w-4" />}>
+                  <div className="relative">
+                    <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                    <input className="field !pr-9" placeholder="ابحث باسم السورة أو رقمها…" value={surahQuery} onChange={(e) => setSurahQuery(e.target.value)} />
+                  </div>
+                  <select
+                    className="field"
+                    size={6}
+                    value={surah}
+                    onChange={(e) => {
+                      stopAudio();
+                      const s = parseInt(e.target.value);
+                      setSurah(s);
+                      setVerseNum(1);
+                      setEndVerseNum(Math.min(getSurah(s).ayahs, 5));
+                    }}
+                  >
+                    {filteredSurahs.map((s) => (
+                      <option key={s.number} value={s.number}>
+                        {toArabicDigits(s.number)}. {s.name} — {s.englishName} ({toArabicDigits(s.ayahs)} آية • {s.revelation})
+                      </option>
+                    ))}
+                  </select>
+                  <div className="rounded-2xl border border-gold-500/20 bg-night-950/80 p-3">
+                    <label className="label flex items-center gap-1 !text-gold-300">
+                      <Film className="h-3.5 w-3.5" /> نطاق الآيات للفيديو والدفعات
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <span className="mb-1 block text-[10px] text-slate-500">من آية</span>
+                        <input type="number" min={1} max={meta.ayahs} value={verseNum} onChange={(e) => goVerse(parseInt(e.target.value) || 1)} className="field text-center font-bold" />
+                      </div>
+                      <div>
+                        <span className="mb-1 block text-[10px] text-slate-500">إلى آية (أقصى {toArabicDigits(meta.ayahs)})</span>
+                        <input
+                          type="number"
+                          min={verseNum}
+                          max={meta.ayahs}
+                          value={endVerseNum}
+                          onChange={(e) => setEndVerseNum(Math.min(meta.ayahs, Math.max(verseNum, parseInt(e.target.value) || verseNum)))}
+                          className="field text-center font-bold"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button className="chip border-white/10 bg-night-900 text-slate-300 hover:border-gold-500/40" onClick={() => setEndVerseNum(verseNum)}>
+                        الآية الحالية فقط
+                      </button>
+                      <button className="chip border-white/10 bg-night-900 text-slate-300 hover:border-gold-500/40" onClick={() => setEndVerseNum(Math.min(meta.ayahs, verseNum + 4))}>
+                        +٥ آيات
+                      </button>
+                      <button className="chip border-white/10 bg-night-900 text-slate-300 hover:border-gold-500/40" onClick={() => setEndVerseNum(Math.min(meta.ayahs, verseNum + 9))}>
+                        +١٠ آيات
+                      </button>
+                      <button
+                        className="chip border-white/10 bg-night-900 text-slate-300 hover:border-gold-500/40"
+                        onClick={() => {
+                          goVerse(1);
+                          setEndVerseNum(meta.ayahs);
+                        }}
+                      >
+                        السورة كاملة
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[10px] text-slate-500">المحدد الآن: {toArabicDigits(rangeCount)} آية — سيتم إنتاجها بالتسلسل مع التلاوة.</p>
+                  </div>
+                </Section>
+
+                <Section title="التفسير والترجمة" icon={<Layers className="h-4 w-4" />}>
+                  <SelectField
+                    label="التفسير العربي (المصدر موثق)"
+                    value={tafseerId}
+                    onChange={(v) => setTafseerId(String(v))}
+                    options={TAFSEER_OPTIONS.map((t) => ({ value: t.id, label: `${t.name} — ${t.author} (${t.length})` }))}
                   />
-                </div>
-                <div>
-                  <span className="text-[11px] text-slate-400 block mb-1">إلى آية (أقصى آية {verseData?.totalVersesInSurah}):</span>
-                  <input
-                    type="number"
-                    min={verseNum}
-                    max={verseData?.totalVersesInSurah || 1}
-                    value={endVerseNum}
-                    onChange={(e) => setEndVerseNum(Math.min(verseData?.totalVersesInSurah || 1, parseInt(e.target.value) || verseNum))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-100 text-sm font-bold text-center"
+                  <SelectField
+                    label="لغة الترجمة"
+                    icon={<Globe className="h-3.5 w-3.5" />}
+                    value={langCode}
+                    onChange={(v) => setLangCode(String(v))}
+                    options={TRANSLATION_LANGUAGES.map((l) => ({ value: l.code, label: `${l.nativeName} — ${l.name}` }))}
                   />
-                </div>
-              </div>
-            </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Toggle label="إظهار التفسير" checked={design.showTafseer} onChange={(v) => upd({ showTafseer: v })} />
+                    <Toggle label="إظهار الترجمة" checked={design.showTranslation} onChange={(v) => upd({ showTranslation: v })} />
+                  </div>
+                  {verseData?.tafseerArabic && (
+                    <div className="max-h-40 overflow-y-auto rounded-xl border border-white/5 bg-night-950/70 p-3 text-[12px] leading-relaxed text-slate-300">
+                      <span className="mb-1 block font-bold text-gold-300">{verseData.tafseerName}</span>
+                      {verseData.tafseerArabic}
+                    </div>
+                  )}
+                </Section>
 
-            {/* اختيار القارئ */}
-            <div>
-              <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1">
-                <Mic className="w-4 h-4 text-emerald-400" /> القارئ المفضل:
-              </label>
-              <select
-                value={reciterId}
-                onChange={(e) => setReciterId(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-slate-100 font-medium focus:border-emerald-500 focus:outline-none"
-              >
-                {RECITERS_LIST.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+                <Section title="المصادر والتوثيق" icon={<Shield className="h-4 w-4" />} defaultOpen={false}>
+                  <ul className="space-y-1.5 text-[11px] leading-relaxed text-slate-400">
+                    <li>• النص العثماني: مصحف المدينة النبوية (ترميز Tanzil) عبر AlQuran Cloud API.</li>
+                    <li>• التلاوات: Islamic Network CDN — تلاوة آية بآية لكبار القرّاء.</li>
+                    <li>• التفاسير الموجزة: التفسير الميسر (مجمع الملك فهد)، الجلالين، القرطبي، البغوي، الوسيط، تنوير المقباس.</li>
+                    <li>• التفاسير الموسّعة: ابن كثير، الطبري، السعدي — من بيانات QUL (Tarteel) عبر مشروع tafsir_api.</li>
+                    <li>• التراجم: {TRANSLATION_LANGUAGES.length} لغة من إصدارات AlQuran Cloud المعتمدة.</li>
+                  </ul>
+                  <button className="btn-ghost w-full !py-2 text-xs" onClick={() => { clearQuranCache(); push("info", "تم مسح الذاكرة المؤقتة"); }}>
+                    <RotateCcw className="h-3.5 w-3.5" /> مسح الذاكرة المؤقتة للنصوص
+                  </button>
+                </Section>
+              </>
+            )}
 
-          {/* التفسير والترجمة */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[11px] font-semibold text-slate-400 block mb-1">التفسير العربي:</label>
-              <select
-                value={tafseerEd}
-                onChange={(e) => setTafseerEd(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-2.5 text-slate-100 text-xs"
-              >
-                {TAFSEER_OPTIONS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[11px] font-semibold text-slate-400 block mb-1">الترجمة العالمية:</label>
-              <select
-                value={langCode}
-                onChange={(e) => setLangCode(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-2.5 text-slate-100 text-xs"
-              >
-                {TRANSLATION_LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+            {/* ═════ تبويب التصميم ═════ */}
+            {tab === "design" && (
+              <>
+                <Section title="قوالب جاهزة" icon={<Wand2 className="h-4 w-4" />}>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PRESETS.map((p) => (
+                      <button key={p.id} onClick={() => { upd(p.patch); push("success", `تم تطبيق قالب «${p.name}»`); }} className="rounded-xl border border-white/10 bg-night-950/70 p-2.5 text-right transition hover:border-gold-500/50 hover:bg-night-800">
+                        <span className="block text-xs font-extrabold text-gold-300">{p.name}</span>
+                        <span className="block text-[10px] text-slate-500">{p.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button className="btn-ghost w-full !py-2 text-xs" onClick={() => { setDesign(INITIAL_DESIGN); push("info", "تمت استعادة الإعدادات الافتراضية"); }}>
+                    <RotateCcw className="h-3.5 w-3.5" /> استعادة الافتراضي
+                  </button>
+                </Section>
 
-          {/* أبعاد البث المباشر */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 block mb-2">أبعاد المقطع:</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(["9:16", "1:1", "16:9"] as const).map((ratio) => (
-                <button
-                  key={ratio}
-                  onClick={() => setAspectRatio(ratio)}
-                  className={`py-2.5 rounded-xl text-xs border font-bold transition ${
-                    aspectRatio === ratio
-                      ? "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-950/60"
-                      : "bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800"
-                  }`}
-                >
-                  {ratio === "9:16" ? "طولي (Reels)" : ratio === "1:1" ? "مربع (Insta)" : "عرضي (TV Broadcast)"}
-                </button>
-              ))}
-            </div>
-          </div>
+                <Section title="الأبعاد والدقة" icon={<Frame className="h-4 w-4" />} badge={`${pw}×${ph}`}>
+                  <Segmented<AspectRatio>
+                    value={design.aspect}
+                    onChange={(v) => upd({ aspect: v })}
+                    cols={4}
+                    options={[
+                      { value: "9:16", label: "9:16", sub: "Reels / TikTok" },
+                      { value: "4:5", label: "4:5", sub: "Instagram Feed" },
+                      { value: "1:1", label: "1:1", sub: "مربع" },
+                      { value: "16:9", label: "16:9", sub: "YouTube / TV" },
+                    ]}
+                  />
+                  <Segmented<Resolution>
+                    value={design.resolution}
+                    onChange={(v) => upd({ resolution: v })}
+                    options={[
+                      { value: "hd", label: "HD 1080", sub: "سريع" },
+                      { value: "2k", label: "2K 1620", sub: "متوازن" },
+                      { value: "4k", label: "4K 2160", sub: "أعلى جودة" },
+                    ]}
+                  />
+                  <p className="text-[10px] text-slate-500">ملاحظة: تسجيل فيديو 4K يتطلب جهازاً قوياً؛ يُنصح بـ HD للفيديو و4K للبطاقات.</p>
+                </Section>
 
-          {/* خلفيات 4K */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1">
-              <ImageIcon className="w-4 h-4 text-emerald-400" /> خلفية البث المباشر:
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {BACKGROUND_LIBRARY.map((bg) => (
-                <button
-                  key={bg.id}
-                  onClick={() => setBgImage(bg.url)}
-                  className={`p-2.5 text-xs rounded-xl border text-right transition truncate font-medium ${
-                    bgImage === bg.url
-                      ? "bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-md"
-                      : "bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800"
-                  }`}
-                >
-                  {bg.name}
-                </button>
-              ))}
-            </div>
+                <Section title="الثيم والخط" icon={<Type className="h-4 w-4" />}>
+                  <div className="grid grid-cols-4 gap-2">
+                    {THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => upd({ themeId: t.id })}
+                        title={t.name}
+                        className={`rounded-xl border p-1.5 transition ${design.themeId === t.id ? "border-gold-400 ring-2 ring-gold-500/40" : "border-white/10 hover:border-white/30"}`}
+                      >
+                        <span className="block h-8 rounded-lg" style={{ background: `linear-gradient(135deg, ${t.overlayTop.replace(/[\d.]+\)$/, "1)")}, ${t.overlayBottom.replace(/[\d.]+\)$/, "1)")})` }}>
+                          <span className="mt-2 block h-1.5 w-2/3 rounded-full" style={{ background: t.verse, marginRight: "auto", marginLeft: "auto" }} />
+                          <span className="mt-1 block h-1 w-1/3 rounded-full" style={{ background: t.accent, marginRight: "auto", marginLeft: "auto" }} />
+                        </span>
+                        <span className="mt-1 block truncate text-[9px] font-bold text-slate-300">{t.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <SelectField label="خط النص القرآني" value={design.fontFamily} onChange={(v) => upd({ fontFamily: v })} options={QURAN_FONTS.map((f) => ({ value: f.id, label: f.name }))} />
+                  <SelectField label="خط الواجهة والتفسير" value={design.uiFont} onChange={(v) => upd({ uiFont: v })} options={[{ value: "Cairo", label: "القاهرة (Cairo)" }, { value: "Tajawal", label: "تجوال (Tajawal)" }, { value: "Noto Naskh Arabic", label: "نوتو نسخ" }, { value: "Amiri", label: "أميري" }]} />
+                  <Slider label="حجم النص القرآني" value={design.fontSize} min={30} max={110} onChange={(v) => upd({ fontSize: v })} format={(v) => `${v}px`} />
+                  <Slider label="تباعد الأسطر" value={design.lineHeight} min={1.3} max={2.6} step={0.05} onChange={(v) => upd({ lineHeight: v })} format={(v) => v.toFixed(2)} />
+                  <Slider label="إزاحة النص عمودياً" value={design.verseOffsetY} min={-1} max={1} step={0.05} onChange={(v) => upd({ verseOffsetY: v })} format={(v) => `${Math.round(v * 100)}%`} />
+                  <Slider label="توهج النص" value={design.glow} min={0} max={1} step={0.05} onChange={(v) => upd({ glow: v })} format={(v) => `${Math.round(v * 100)}%`} />
+                  <div>
+                    <label className="label">أقواس الآية</label>
+                    <Segmented value={design.bracket} onChange={(v) => upd({ bracket: v as any })} options={[{ value: "ornate", label: "﴿ ﴾" }, { value: "simple", label: "« »" }, { value: "none", label: "بدون" }]} />
+                  </div>
+                </Section>
+
+                <Section title="عناصر البطاقة" icon={<SlidersHorizontal className="h-4 w-4" />}>
+                  <div>
+                    <label className="label">نمط الترويسة</label>
+                    <Segmented value={design.headerStyle} onChange={(v) => upd({ headerStyle: v as any })} cols={4} options={[{ value: "broadcast", label: "بث" }, { value: "banner", label: "لافتة" }, { value: "minimal", label: "بسيط" }, { value: "none", label: "بدون" }]} />
+                  </div>
+                  <div>
+                    <label className="label">اسم القناة (شريط البث)</label>
+                    <input className="field" value={design.channelName} onChange={(e) => upd({ channelName: e.target.value })} placeholder="قناة القرآن الكريم" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Toggle label="البسملة (أول آية)" checked={design.showBasmala} onChange={(v) => upd({ showBasmala: v })} />
+                    <Toggle label="شارة رقم الآية" checked={design.showVerseBadge} onChange={(v) => upd({ showVerseBadge: v })} />
+                    <Toggle label="شريط اسم القارئ" checked={design.showReciter} onChange={(v) => upd({ showReciter: v })} />
+                    <Toggle label="سطر التوثيق" checked={design.showFooter} onChange={(v) => upd({ showFooter: v })} />
+                    <Toggle label="صندوق التفسير" checked={design.tafseerPanel} onChange={(v) => upd({ tafseerPanel: v })} />
+                    <Toggle label="شريط تقدم الفيديو" checked={design.showProgress} onChange={(v) => upd({ showProgress: v })} />
+                  </div>
+                  <Slider label="حجم الترجمة" value={design.translationSize} min={16} max={44} onChange={(v) => upd({ translationSize: v })} format={(v) => `${v}px`} />
+                  <Slider label="حجم نص التفسير" value={design.tafseerSize} min={14} max={36} onChange={(v) => upd({ tafseerSize: v })} format={(v) => `${v}px`} />
+                  <Slider label="أقصى طول للتفسير" value={design.tafseerMaxChars} min={120} max={1200} step={20} onChange={(v) => upd({ tafseerMaxChars: v })} format={(v) => `${v} حرف`} />
+                  <div>
+                    <label className="label">نص التوثيق السفلي</label>
+                    <input className="field" value={design.footerText} onChange={(e) => upd({ footerText: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">علامة مائية (اسم الحساب)</label>
+                    <input className="field" dir="ltr" value={design.watermark} onChange={(e) => upd({ watermark: e.target.value })} placeholder="@your_account" />
+                  </div>
+                </Section>
+
+                <Section title="الخلفية والإطار" icon={<ImageIcon className="h-4 w-4" />}>
+                  <div>
+                    <label className="label">نمط الإطار</label>
+                    <Segmented value={design.frame} onChange={(v) => upd({ frame: v as any })} cols={5} options={[{ value: "none", label: "بدون" }, { value: "thin", label: "رفيع" }, { value: "double", label: "مزدوج" }, { value: "corners", label: "زوايا" }, { value: "ornate", label: "مزخرف" }]} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {BACKGROUND_LIBRARY.map((bg) => (
+                      <button
+                        key={bg.id}
+                        onClick={() => upd({ bgUrl: bg.url })}
+                        className={`group relative h-16 overflow-hidden rounded-xl border text-right transition ${design.bgUrl === bg.url ? "border-gold-400 ring-2 ring-gold-500/40" : "border-white/10 hover:border-white/40"}`}
+                        style={bg.type === "gradient" ? { background: `linear-gradient(135deg, ${bg.url.slice(9)})` } : { backgroundImage: `url(${bg.url.replace("w=2400", "w=400")})`, backgroundSize: "cover", backgroundPosition: "center" }}
+                      >
+                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 py-1 text-[10px] font-bold text-white">{bg.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <label className="btn-ghost w-full cursor-pointer !py-2 text-xs">
+                    <Upload className="h-4 w-4 text-gold-300" /> رفع صورة أو فيديو خلفية (MP4/WebM)
+                    <input type="file" accept="image/*,video/mp4,video/webm" className="hidden" onChange={(e) => e.target.files?.[0] && uploadBackground(e.target.files[0])} />
+                  </label>
+                  <div>
+                    <label className="label">رابط خلفية مخصص (URL)</label>
+                    <input className="field" dir="ltr" placeholder="https://…jpg | mp4" onBlur={(e) => e.target.value && upd({ bgUrl: e.target.value })} />
+                  </div>
+                  <Slider label="تعتيم الطبقة السينمائية" value={design.overlayOpacity} min={0} max={1} step={0.05} onChange={(v) => upd({ overlayOpacity: v })} format={(v) => `${Math.round(v * 100)}%`} />
+                  <Slider label="تظليل الحواف (Vignette)" value={design.vignette} min={0} max={1} step={0.05} onChange={(v) => upd({ vignette: v })} format={(v) => `${Math.round(v * 100)}%`} />
+                  <Slider label="ضبابية الخلفية" value={design.blur} min={0} max={30} onChange={(v) => upd({ blur: v })} format={(v) => `${v}px`} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Slider label="موضع أفقي" value={design.bgPosX} min={0} max={1} step={0.05} onChange={(v) => upd({ bgPosX: v })} format={(v) => `${Math.round(v * 100)}%`} />
+                    <Slider label="موضع عمودي" value={design.bgPosY} min={0} max={1} step={0.05} onChange={(v) => upd({ bgPosY: v })} format={(v) => `${Math.round(v * 100)}%`} />
+                  </div>
+                </Section>
+
+                <Section title="حركة الفيديو" icon={<Sparkles className="h-4 w-4" />}>
+                  <Toggle label="حركة Ken Burns للخلفية" hint="تقريب وانزياح بطيء أثناء التلاوة" checked={design.kenBurns} onChange={(v) => upd({ kenBurns: v })} />
+                  <div>
+                    <label className="label">دخول النص</label>
+                    <Segmented value={design.animation} onChange={(v) => upd({ animation: v as any })} cols={4} options={[{ value: "none", label: "ثابت" }, { value: "fade", label: "تلاشٍ" }, { value: "rise", label: "صعود" }, { value: "zoom", label: "تقريب" }]} />
+                  </div>
+                </Section>
+              </>
+            )}
+
+            {/* ═════ تبويب الصوت ═════ */}
+            {tab === "audio" && (
+              <>
+                <Section title="القارئ" icon={<Mic className="h-4 w-4" />}>
+                  <div className="grid max-h-80 grid-cols-1 gap-1.5 overflow-y-auto pl-1">
+                    {RECITERS_LIST.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => { stopAudio(); setReciterId(r.id); }}
+                        className={`flex items-center justify-between rounded-xl border px-3 py-2 text-right text-xs transition ${reciterId === r.id ? "border-gold-400/70 bg-gold-500/10 text-gold-200" : "border-white/5 bg-night-950/60 text-slate-300 hover:border-white/20"}`}
+                      >
+                        <span className="font-bold">{r.name}</span>
+                        <span className={`chip ${r.style === "مجود" ? "border-fuchsia-500/30 text-fuchsia-300" : "border-emerald-500/30 text-emerald-300"}`}>{r.style}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Section>
+                <Section title="إعدادات التشغيل" icon={<Settings2 className="h-4 w-4" />}>
+                  <Toggle label="التلاوة المستمرة" hint="الانتقال تلقائياً للآية التالية" checked={continuousPlay} onChange={setContinuousPlay} />
+                  <Toggle label="تكرار الآية الحالية" checked={loopVerse} onChange={setLoopVerse} />
+                  <Slider label="مستوى الصوت" value={volume} min={0} max={1} step={0.05} onChange={setVolume} format={(v) => `${Math.round(v * 100)}%`} />
+                  <Slider label="سرعة التشغيل" value={rate} min={0.5} max={2} step={0.25} onChange={setRate} format={(v) => `${v}×`} />
+                </Section>
+              </>
+            )}
+
+            {/* ═════ تبويب التصدير ═════ */}
+            {tab === "export" && (
+              <>
+                <Section title="بطاقة الصورة" icon={<ImageIcon className="h-4 w-4" />} badge={`${pw}×${ph}`}>
+                  <Segmented value={imageFormat} onChange={(v) => setImageFormat(v as any)} options={[{ value: "png", label: "PNG", sub: "بدون فقد" }, { value: "jpg", label: "JPG", sub: "أخف حجماً" }, { value: "webp", label: "WebP", sub: "حديث" }]} />
+                  <button onClick={handleDownload} disabled={!verseData} className="btn-emerald w-full">
+                    <Download className="h-5 w-5" /> تنزيل البطاقة الحالية
+                  </button>
+                  <button onClick={handleBatch} disabled={!verseData || !!batchProgress} className="btn-ghost w-full">
+                    <Package className="h-5 w-5 text-sky-300" /> {batchProgress ? `جاري التصدير ${batchProgress.done}/${batchProgress.total}…` : `تصدير ${toArabicDigits(rangeCount)} بطاقة كملف ZIP`}
+                  </button>
+                  {batchProgress && (
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full bg-sky-400 transition-all" style={{ width: `${(batchProgress.done / Math.max(1, batchProgress.total)) * 100}%` }} />
+                    </div>
+                  )}
+                </Section>
+
+                <Section title="فيديو بصوت التلاوة" icon={<Video className="h-4 w-4" />} badge={mimeInfo.ext.toUpperCase()}>
+                  <p className="text-[11px] leading-relaxed text-slate-400">
+                    يُسجَّل الفيديو من العارض مباشرة مع دمج صوت القارئ في المسار الصوتي. الصيغة المتاحة في متصفحك: <b className="text-gold-300">{mimeInfo.ext.toUpperCase()}</b> (Chrome/Edge الحديثة تنتج MP4 مباشرة).
+                  </p>
+                  <Segmented value={String(videoOpts.fps)} onChange={(v) => setVideoOpts({ ...videoOpts, fps: parseInt(v) })} options={[{ value: "24", label: "24 fps", sub: "سينمائي" }, { value: "30", label: "30 fps", sub: "قياسي" }, { value: "60", label: "60 fps", sub: "ناعم" }]} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Toggle label="بطاقة افتتاحية" checked={videoOpts.introSlate} onChange={(v) => setVideoOpts({ ...videoOpts, introSlate: v })} />
+                    <Toggle label="بطاقة ختامية" checked={videoOpts.outroSlate} onChange={(v) => setVideoOpts({ ...videoOpts, outroSlate: v })} />
+                  </div>
+                  <Slider label="مدة البطاقات الافتتاحية/الختامية" value={videoOpts.slateSeconds} min={1} max={8} step={0.5} onChange={(v) => setVideoOpts({ ...videoOpts, slateSeconds: v })} format={(v) => `${v} ث`} />
+                  <Slider label="فاصل صامت بين الآيات" value={videoOpts.gapSeconds} min={0} max={3} step={0.1} onChange={(v) => setVideoOpts({ ...videoOpts, gapSeconds: v })} format={(v) => `${v.toFixed(1)} ث`} />
+                  <Slider label="تكرار كل آية" value={videoOpts.repeat} min={1} max={3} onChange={(v) => setVideoOpts({ ...videoOpts, repeat: v })} format={(v) => `${v}×`} />
+                  <Toggle label="سماع الصوت أثناء التسجيل" checked={videoOpts.monitor} onChange={(v) => setVideoOpts({ ...videoOpts, monitor: v })} />
+                  <button onClick={handleVideo} disabled={!verseData || !!recording} className="btn w-full bg-gradient-to-l from-fuchsia-600 to-purple-600 text-white shadow-lg hover:brightness-110">
+                    <Video className="h-5 w-5" /> {recording ? "جاري التسجيل…" : `إنتاج فيديو (${toArabicDigits(rangeCount)} آية • ${design.aspect} • ${design.resolution.toUpperCase()})`}
+                  </button>
+                  <p className="text-[10px] text-slate-500">أبقِ التبويب مفتوحاً وظاهراً أثناء التسجيل؛ الانتقال لتبويب آخر قد يوقف الرسم.</p>
+                </Section>
+
+                <Section title="نص المنشور" icon={<Copy className="h-4 w-4" />}>
+                  <button onClick={handleCaption} disabled={!verseData} className="btn-ghost w-full">
+                    <Wand2 className="h-4 w-4 text-gold-300" /> توليد ونسخ نص المنشور (مع الوسوم)
+                  </button>
+                  {caption && <textarea readOnly className="field h-40 text-[12px] leading-relaxed" value={caption} />}
+                </Section>
+
+                <Section title="الإعدادات" icon={<FileJson className="h-4 w-4" />} defaultOpen={false}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={exportSettings} className="btn-ghost !py-2 text-xs">
+                      <Download className="h-4 w-4" /> تصدير JSON
+                    </button>
+                    <label className="btn-ghost cursor-pointer !py-2 text-xs">
+                      <Upload className="h-4 w-4" /> استيراد JSON
+                      <input type="file" accept="application/json" className="hidden" onChange={(e) => e.target.files?.[0] && importSettings(e.target.files[0])} />
+                    </label>
+                  </div>
+                  <button onClick={shareLink} className="btn-ghost w-full !py-2 text-xs">
+                    <Share2 className="h-4 w-4 text-emerald-300" /> نسخ رابط هذه الآية/النطاق
+                  </button>
+                </Section>
+              </>
+            )}
           </div>
-        </div>
+        </aside>
       </div>
+
+      <footer className="border-t border-white/5 px-6 py-4 text-center text-[11px] text-slate-500">
+        Quran Innovative Hub © {new Date().getFullYear()} — النص القرآني والتلاوات من مصادر موثقة • يُرجى مراجعة البطاقة قبل النشر
+      </footer>
+
+      <Toasts items={toasts} onClose={remove} />
     </main>
   );
 }
