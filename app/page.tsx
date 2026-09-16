@@ -145,14 +145,22 @@ export default function Home() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetchVerseDetails(surah, verseNum, reciterId, tafseerId, langCode).then((data) => {
-      if (!alive) return;
-      setVerseData(data);
-      setLoading(false);
-    });
+    fetchVerseDetails(surah, verseNum, reciterId, tafseerId, langCode)
+      .then((data) => {
+        if (!alive) return;
+        setVerseData(data);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        console.error("fetchVerseDetails effect", e);
+        setLoading(false);
+        push("error", "تعذّر تحميل هذه الآية — تحقق من الاتصال بالإنترنت وحاول مجدداً");
+      });
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surah, verseNum, reciterId, tafseerId, langCode]);
 
   // ضبط نطاق النهاية عند تغيير السورة
@@ -297,12 +305,16 @@ export default function Home() {
       });
       jobRef.current = job;
       const result = await job.done;
+      setRecording(null); // إخفاء لوحة "جاري التسجيل" قبل بدء مرحلة التحويل المنفصلة
       if (result) {
         let blob = result.blob;
         let ext = result.ext;
         const namePrefix = `Quran_${meta.name}_${verseNum}-${endVerseNum}_${c.width}x${c.height}`;
-        // تحويل تلقائي لصيغة MP4 عالمية جاهزة للنشر والمشاركة المباشرة على مواقع التواصل الاجتماعي
-        if (readyForSocial && canFinalizeVideo() && ext !== "mp4") {
+        // تحويل تلقائي لصيغة MP4 قياسية (moov غير مجزّأ + faststart) — حتى عندما يخرج المتصفح
+        // "mp4" مباشرة فإن MediaRecorder غالباً يولّد حاوية مجزّأة (fragmented) لا تُفتح بشكل
+        // موثوق في تطبيقات الجوال ومواقع التواصل؛ إعادة الترميز هنا تضمن ملفاً يعمل في كل مكان
+        // بدون أي برامج أو تعديلات إضافية من المستخدم.
+        if (readyForSocial && canFinalizeVideo()) {
           try {
             setFinalizing({ stage: "تحميل محرك التحويل", percent: 0 });
             const mp4 = await finalizeShareableMp4(blob, ext, {

@@ -636,27 +636,7 @@ export function renderCard(canvas: HTMLCanvasElement, input: RenderInput) {
   const reciterH = d.showReciter ? (wide ? 60 : 74) : 0;
   const bottomLimit = H - footerH - reciterH - 24;
 
-  // ── قياس التفسير مسبقاً لتثبيته أسفل البطاقة
-  const tfs = wide ? d.tafseerSize * 0.9 : d.tafseerSize;
-  const tlhT = tfs * 1.65;
-  let tafLines: string[] = [];
-  let panelH = 0;
-  if (d.showTafseer && verse.tafseerArabic) {
-    ctx.save();
-    ctx.direction = "rtl";
-    ctx.font = `400 ${tfs}px ${uiFont}`;
-    const maxLinesByArea = Math.max(2, Math.floor(((bottomLimit - topY) * (wide ? 0.5 : 0.42)) / tlhT));
-    tafLines = wrapLines(ctx, trimTafseer(verse.tafseerArabic, d.tafseerMaxChars), W * 0.82);
-    if (tafLines.length > maxLinesByArea) {
-      tafLines = tafLines.slice(0, maxLinesByArea);
-      tafLines[maxLinesByArea - 1] = tafLines[maxLinesByArea - 1].replace(/[،.؛\s]+$/, "") + " …";
-    }
-    panelH = tafLines.length * tlhT + 74;
-    ctx.restore();
-  }
-  const panelY = bottomLimit - panelH;
-
-  // ── قياس الترجمة
+  // ── قياس الترجمة (تُرسم أسفل لوحة التفسير مباشرة وقبل نهاية البطاقة — بعد شريط القارئ)
   const lang = getLang(langCode);
   const translated = d.showTranslation ? verse.translations[langCode] : "";
   const trSize = wide ? d.translationSize * 0.85 : d.translationSize;
@@ -670,6 +650,30 @@ export function renderCard(canvas: HTMLCanvasElement, input: RenderInput) {
     ctx.restore();
   }
   const trBlockH = translated ? 30 + trLines.length * trLH + 10 : 0;
+  // ترتيب الأسفل من الأسفل للأعلى: التذييل، شريط القارئ، الترجمة، ثم لوحة التفسير
+  const transBottom = bottomLimit;
+  const transTop = translated ? transBottom - trBlockH : transBottom;
+
+  // ── قياس التفسير مسبقاً لتثبيته فوق كتلة الترجمة مباشرة
+  const tfs = wide ? d.tafseerSize * 0.9 : d.tafseerSize;
+  const tlhT = tfs * 1.65;
+  let tafLines: string[] = [];
+  let panelH = 0;
+  const tafseerBottom = translated ? transTop - 14 : bottomLimit;
+  if (d.showTafseer && verse.tafseerArabic) {
+    ctx.save();
+    ctx.direction = "rtl";
+    ctx.font = `400 ${tfs}px ${uiFont}`;
+    const maxLinesByArea = Math.max(2, Math.floor(((tafseerBottom - topY) * (wide ? 0.5 : 0.42)) / tlhT));
+    tafLines = wrapLines(ctx, trimTafseer(verse.tafseerArabic, d.tafseerMaxChars), W * 0.82);
+    if (tafLines.length > maxLinesByArea) {
+      tafLines = tafLines.slice(0, maxLinesByArea);
+      tafLines[maxLinesByArea - 1] = tafLines[maxLinesByArea - 1].replace(/[،.؛\s]+$/, "") + " …";
+    }
+    panelH = tafLines.length * tlhT + 74;
+    ctx.restore();
+  }
+  const panelY = tafseerBottom - panelH;
 
   // 5) النص القرآني
   const enter = easeOut(Math.min(1, Math.max(0, anim.enter)));
@@ -701,9 +705,9 @@ export function renderCard(canvas: HTMLCanvasElement, input: RenderInput) {
   const basmalaFS = fs * 0.6;
   const basmalaLH = basmalaFS * 1.5;
   const basmalaSpace = basmalaOn ? basmalaLH + fs * 0.35 : 0;
-  const blockH = bodyLines.length * lh + trBlockH;
+  const blockH = bodyLines.length * lh;
   const areaTop = topY;
-  const areaBottom = panelH ? panelY - 16 : bottomLimit;
+  const areaBottom = panelH ? panelY - 16 : translated ? transTop - 16 : bottomLimit;
   const contentTop = areaTop + basmalaSpace;
   let y = contentTop + (areaBottom - contentTop - blockH) / 2 + lh / 2 + d.verseOffsetY * 0.15 * H;
   y = Math.max(contentTop + lh / 2, y);
@@ -745,24 +749,9 @@ export function renderCard(canvas: HTMLCanvasElement, input: RenderInput) {
     ctx.fillText(toArabicDigits(verse.verseNumber), bx, by + 1);
   }
   ctx.shadowBlur = 0;
-  let nextY = y + (bodyLines.length - 1) * lh + lh * 0.7;
   ctx.restore();
 
-  // 6) الترجمة
-  if (translated && trLines.length) {
-    drawDivider(ctx, W / 2, nextY, W * 0.4, theme.accent);
-    nextY += 30;
-    ctx.save();
-    ctx.direction = lang.rtl ? "rtl" : "ltr";
-    ctx.font = `italic 400 ${trSize}px ${lang.rtl ? qFont : `"Cairo", "Segoe UI", sans-serif`}`;
-    ctx.fillStyle = theme.text;
-    ctx.shadowColor = "rgba(0,0,0,0.8)";
-    ctx.shadowBlur = 8;
-    trLines.forEach((l, i) => ctx.fillText(l, W / 2, nextY + trLH / 2 + i * trLH));
-    ctx.restore();
-  }
-
-  // 7) التفسير (مثبّت أسفل البطاقة)
+  // 6) التفسير (مثبّت أسفل البطاقة، فوق كتلة الترجمة)
   if (panelH) {
     ctx.save();
     ctx.direction = "rtl";
@@ -785,6 +774,20 @@ export function renderCard(canvas: HTMLCanvasElement, input: RenderInput) {
     ctx.font = `400 ${tfs}px ${uiFont}`;
     ctx.fillStyle = theme.text;
     tafLines.forEach((l, i) => ctx.fillText(l, W / 2, py + 74 + i * tlhT + tlhT / 2 - 6));
+    ctx.restore();
+  }
+
+  // 7) الترجمة (أسفل التفسير مباشرة وقبل نهاية البطاقة)
+  if (translated && trLines.length) {
+    ctx.save();
+    drawDivider(ctx, W / 2, transTop, W * 0.4, theme.accent);
+    ctx.direction = lang.rtl ? "rtl" : "ltr";
+    ctx.font = `italic 400 ${trSize}px ${lang.rtl ? qFont : `"Cairo", "Segoe UI", sans-serif`}`;
+    ctx.fillStyle = theme.text;
+    ctx.shadowColor = "rgba(0,0,0,0.8)";
+    ctx.shadowBlur = 8;
+    const trStart = transTop + 30;
+    trLines.forEach((l, i) => ctx.fillText(l, W / 2, trStart + trLH / 2 + i * trLH));
     ctx.restore();
   }
 

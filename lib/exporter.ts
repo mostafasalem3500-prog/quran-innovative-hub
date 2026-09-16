@@ -322,7 +322,8 @@ export async function finalizeShareableMp4(input: Blob, srcExt: string, opts: Fi
     await ff.writeFile(inName, buf);
 
     opts.onStage?.("ترميز MP4 عالي الجودة");
-    const scale = `scale=w='min(iw,${maxDimension})':h='min(ih,${maxDimension})':force_original_aspect_ratio=decrease:force_divisible_by=2`;
+    // نفرض بكسلات مربعة (setsar=1) لضمان عرض النِّسبة الصحيحة على كل مشغّلات الجوال
+    const scale = `scale=w='min(iw,${maxDimension})':h='min(ih,${maxDimension})':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1`;
     await ff.exec([
       "-i",
       inName,

@@ -155,10 +155,43 @@ export function ayahAudioUrl(reciterId: string, surah: number, verse: number, bi
   return `https://cdn.islamic.network/quran/audio/${br}/${reciterId}/${globalAyahNumber(surah, verse)}.mp3`;
 }
 
-/** روابط بديلة للصوت عند فشل الجودة الأصلية */
+// مرايا صوتية بديلة على خادم مستقل تماماً (everyayah.com) — تُستخدم فقط عند فشل
+// كل محاولات cdn.islamic.network، لضمان استمرار الصوت حتى لو تعطّل خادم واحد.
+// تم التحقق من كل مسار هنا فعلياً قبل إدراجه؛ لا نخمّن أسماء المجلدات.
+const EVERYAYAH_MAP: Record<string, string> = {
+  "ar.hudhaify": "Hudhaify_128kbps",
+  "ar.abdulbasitmurattal": "Abdul_Basit_Murattal_192kbps",
+  "ar.abdulsamad": "Abdul_Basit_Mujawwad_128kbps",
+  "ar.husary": "Husary_128kbps",
+  "ar.minshawi": "Minshawy_Murattal_128kbps",
+  "ar.minshawimujawwad": "Minshawy_Mujawwad_192kbps",
+  "ar.alafasy": "Alafasy_128kbps",
+  "ar.saoodshuraym": "Saood_ash-Shuraym_128kbps",
+  "ar.abdurrahmaansudais": "Abdurrahmaan_As-Sudais_192kbps",
+  "ar.mahermuaiqly": "MaherAlMuaiqly128kbps",
+  "ar.ahmedajamy": "Ahmed_ibn_Ali_al-Ajamy_64kbps_QuranExplorer.Com",
+  "ar.abdullahbasfar": "Abdullah_Basfar_192kbps",
+  "ar.shaatree": "Abu_Bakr_Ash-Shaatree_128kbps",
+  "ar.hanirifai": "Hani_Rifai_192kbps",
+  "ar.muhammadayyoub": "Muhammad_Ayyoub_128kbps",
+  "ar.muhammadjibreel": "Muhammad_Jibreel_64kbps",
+  "ar.aymanswoaid": "Ayman_Sowaid_64kbps",
+};
+
+function everyayahUrl(reciterId: string, surah: number, verse: number) {
+  const folder = EVERYAYAH_MAP[reciterId];
+  if (!folder) return null;
+  const code = `${String(surah).padStart(3, "0")}${String(verse).padStart(3, "0")}`;
+  return `https://everyayah.com/data/${folder}/${code}.mp3`;
+}
+
+/** روابط بديلة للصوت عند فشل الجودة الأصلية — تشمل مرايا على خادم مستقل لضمان الاستمرارية */
 export function ayahAudioFallbacks(reciterId: string, surah: number, verse: number) {
   const g = globalAyahNumber(surah, verse);
-  return [128, 64, 192].map((br) => `https://cdn.islamic.network/quran/audio/${br}/${reciterId}/${g}.mp3`);
+  const list = [128, 64, 192].map((br) => `https://cdn.islamic.network/quran/audio/${br}/${reciterId}/${g}.mp3`);
+  const mirror = everyayahUrl(reciterId, surah, verse);
+  if (mirror) list.push(mirror);
+  return list;
 }
 
 // ─────────────────────────────── التفاسير ───────────────────────────────
@@ -230,16 +263,25 @@ export const BACKGROUND_LIBRARY: BackgroundMedia[] = [
   { id: "milkyway", name: "مجرة درب التبانة", type: "image", category: "طبيعة", url: u("photo-1444703686981-a3abbc4d4fe3"), credit: "Unsplash" },
   { id: "clouds", name: "غيوم من الأعلى", type: "image", category: "طبيعة", url: u("photo-1499956827185-0d63ee78a910"), credit: "Unsplash" },
   { id: "forest", name: "غابة وضوء", type: "image", category: "طبيعة", url: u("photo-1441974231531-c6227db76b6e"), credit: "Unsplash" },
-  { id: "misty-path", name: "طريق ضبابي", type: "image", category: "طبيعة", url: u("photo-1441974231531-c6227db76b6e"), credit: "Unsplash" },
+  { id: "misty-path", name: "طريق ضبابي", type: "image", category: "طبيعة", url: u("photo-1738395548716-522475b89043"), credit: "Unsplash" },
   { id: "rain", name: "مطر على زجاج", type: "image", category: "طبيعة", url: u("photo-1428592953211-077101b2021b"), credit: "Unsplash" },
   { id: "waterfall", name: "شلال أخضر", type: "image", category: "طبيعة", url: u("photo-1433086966358-54859d0ed716"), credit: "Unsplash" },
   { id: "garden", name: "حديقة خضراء", type: "image", category: "طبيعة", url: u("photo-1585320806297-9794b3e4eeae"), credit: "Unsplash" },
-  { id: "palm", name: "نخيل وسماء", type: "image", category: "طبيعة", url: u("photo-1548013146-72479768bada"), credit: "Unsplash" },
+  { id: "palm", name: "نخيل وسماء", type: "image", category: "طبيعة", url: u("photo-1765249456442-f51badd803b4"), credit: "Unsplash" },
+  { id: "dates-fruit", name: "تمر وسعف النخيل", type: "image", category: "طبيعة", url: u("photo-1785531191261-2207cb51381d"), credit: "Unsplash" },
+  { id: "mosque-sunset2", name: "مسجد عند الغروب", type: "image", category: "معالم", url: u("photo-1745863676110-e7494bf3a9ea"), credit: "Unsplash" },
+  { id: "mosque-golden-hour", name: "مسجد بالساعة الذهبية", type: "image", category: "معالم", url: u("photo-1576301173659-228b963e83b2"), credit: "Unsplash" },
+  { id: "mosque-marble-arches", name: "أقواس مرمرية داخلية", type: "image", category: "معالم", url: u("photo-1784400340561-270c9c240613"), credit: "Unsplash" },
+  { id: "mosque-columns", name: "أعمدة وأقواس مسجد", type: "image", category: "معالم", url: u("photo-1769428197774-2dfdffe4a723"), credit: "Unsplash" },
+  { id: "quran-book", name: "كتاب مفتوح", type: "image", category: "معالم", url: u("photo-1542816417-0983c9c9ad53"), credit: "Unsplash" },
+  { id: "prayer-beads", name: "مسبحة وكتاب", type: "image", category: "معالم", url: u("photo-1527999230720-768828d2d0a3"), credit: "Unsplash" },
   // ── قوام وأنسجة ──
   { id: "marble", name: "رخام فاخر", type: "image", category: "قوام", url: u("photo-1541417904950-b855846fe074"), credit: "Unsplash" },
   { id: "gold-texture", name: "قوام ذهبي", type: "image", category: "قوام", url: u("photo-1513346940221-6f673d962e97"), credit: "Unsplash" },
   { id: "smoke", name: "دخان بخور", type: "image", category: "قوام", url: u("photo-1518073399906-6ea6b5c4c1e3"), credit: "Unsplash" },
   { id: "bokeh", name: "أضواء بوكيه", type: "image", category: "قوام", url: u("photo-1518895312237-a9e23508077d"), credit: "Unsplash" },
+  { id: "mandala-gold", name: "زخرفة هندسية ذهبية", type: "image", category: "قوام", url: u("photo-1772388864594-eea7885fa799"), credit: "Unsplash" },
+  { id: "candle-dark", name: "شمعة في الظلام", type: "image", category: "قوام", url: u("photo-1694588061661-ecd7a7b69b79"), credit: "Unsplash" },
   // ── تدرّجات ──
   { id: "g-emerald", name: "تدرّج أخضر حرمي", type: "gradient", category: "تدرّج", url: "gradient:#062a1f,#0b3d2e,#123f33" },
   { id: "g-navy", name: "تدرّج كحلي ذهبي", type: "gradient", category: "تدرّج", url: "gradient:#0b1230,#12204d,#1b1b3a" },
