@@ -287,6 +287,158 @@ function drawDivider(ctx: CanvasRenderingContext2D, cx: number, y: number, width
 }
 
 /** رسم الخلفية (صورة / فيديو / تدرّج) مع تغطية كاملة و Ken Burns */
+// ── مولّد أرقام عشوائية بذرة ثابتة (لضمان ثبات مواضع الجزيئات بين الإطارات) ──
+function mulberry32(seed: number) {
+  return function () {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** رسم خلفية متحركة مولَّدة بالكامل على الـ Canvas (بلا صور خارجية — متوافقة تماماً مع تصدير الفيديو) */
+function drawAnimatedBackground(ctx: CanvasRenderingContext2D, W: number, H: number, kind: string, accent: string) {
+  const time = Date.now() / 1000;
+  // خلفية قاعدية داكنة متدرّجة
+  const base = ctx.createLinearGradient(0, 0, W, H);
+  base.addColorStop(0, "#050b0a");
+  base.addColorStop(1, "#0a1512");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, W, H);
+
+  if (kind === "stars") {
+    const rnd = mulberry32(7);
+    for (let i = 0; i < 220; i++) {
+      const x = rnd() * W;
+      const y = rnd() * H;
+      const r = rnd() * 1.8 + 0.3;
+      const speed = 0.5 + rnd() * 1.5;
+      const tw = 0.4 + 0.6 * Math.abs(Math.sin(time * speed + i));
+      ctx.globalAlpha = tw;
+      ctx.fillStyle = i % 9 === 0 ? "#F5D78E" : "#FFFFFF";
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  } else if (kind === "particles") {
+    const rnd = mulberry32(42);
+    for (let i = 0; i < 90; i++) {
+      const bx = rnd() * W;
+      const by = rnd() * H;
+      const speed = 6 + rnd() * 14;
+      const drift = Math.sin(time * 0.3 + i) * 30;
+      const y = ((by - time * speed) % (H + 60)) - 60 < 0 ? ((by - (time * speed) % (H + 60) + H + 60) % (H + 60)) : (by - (time * speed) % (H + 60));
+      const yy = ((by - ((time * speed) % (H + 60))) + (H + 60)) % (H + 60);
+      const r = 1.5 + rnd() * 3.5;
+      ctx.globalAlpha = 0.25 + 0.35 * Math.sin(time * 2 + i);
+      ctx.fillStyle = "#D4A94A";
+      ctx.beginPath();
+      ctx.arc(bx + drift, yy, Math.abs(r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  } else if (kind === "aurora") {
+    for (let band = 0; band < 4; band++) {
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      const hue = (band * 70 + time * 8) % 360;
+      g.addColorStop(0, `hsla(${hue},70%,45%,0)`);
+      g.addColorStop(0.5, `hsla(${hue},70%,45%,0.16)`);
+      g.addColorStop(1, `hsla(${hue},70%,45%,0)`);
+      ctx.fillStyle = g;
+      ctx.save();
+      ctx.translate(0, Math.sin(time * 0.4 + band) * H * 0.08);
+      ctx.beginPath();
+      const amp = H * 0.12;
+      ctx.moveTo(0, H * 0.3 + band * H * 0.12);
+      for (let x = 0; x <= W; x += W / 24) {
+        const y = H * 0.3 + band * H * 0.12 + Math.sin(x * 0.006 + time * 0.6 + band) * amp;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  } else if (kind === "geometry") {
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    const R = Math.max(W, H) * 0.62;
+    for (let ring = 0; ring < 3; ring++) {
+      ctx.save();
+      ctx.rotate(time * (ring % 2 === 0 ? 0.05 : -0.05) + ring);
+      const n = 8 + ring * 4;
+      const r = R * (0.35 + ring * 0.28);
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = 0.16 + ring * 0.05;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const a = (Math.PI * 2 * i) / n;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  } else if (kind === "waves") {
+    for (let i = 0; i < 5; i++) {
+      const y = H * (0.2 + i * 0.16);
+      const g = ctx.createLinearGradient(0, y - 40, 0, y + 40);
+      g.addColorStop(0, "rgba(212,169,74,0)");
+      g.addColorStop(0.5, `rgba(212,169,74,${0.08 + i * 0.02})`);
+      g.addColorStop(1, "rgba(212,169,74,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= W; x += W / 40) {
+        ctx.lineTo(x, y + Math.sin(x * 0.01 + time * (0.8 + i * 0.15) + i) * 26);
+      }
+      ctx.lineTo(W, y + 80);
+      ctx.lineTo(0, y + 80);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (kind === "rays") {
+    ctx.save();
+    ctx.translate(W / 2, -H * 0.1);
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI + time * 0.05;
+      const w = 0.04 + 0.03 * Math.sin(time + i);
+      ctx.save();
+      ctx.rotate(a);
+      const g = ctx.createLinearGradient(0, 0, 0, H * 1.3);
+      g.addColorStop(0, `rgba(245,215,142,${0.1 + 0.05 * Math.sin(time * 2 + i)})`);
+      g.addColorStop(1, "rgba(245,215,142,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-w * H * 0.15, 0);
+      ctx.lineTo(w * H * 0.15, 0);
+      ctx.lineTo(w * H * 0.6, H * 1.3);
+      ctx.lineTo(-w * H * 0.6, H * 1.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // فينيت خفيف موحّد لكل الخلفيات المتحركة
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.2, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
 export function drawBackground(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -295,6 +447,10 @@ export function drawBackground(
   d: CardDesign,
   anim: RenderAnim
 ) {
+  if (d.bgUrl.startsWith("anim:")) {
+    drawAnimatedBackground(ctx, W, H, d.bgUrl.slice(5), getTheme(d.themeId).accent);
+    return;
+  }
   if (d.bgUrl.startsWith("gradient:") || !media) {
     const cols = d.bgUrl.startsWith("gradient:") ? d.bgUrl.slice(9).split(",") : ["#062a1f", "#0b3d2e", "#123f33"];
     const g = ctx.createLinearGradient(0, 0, W, H);
@@ -541,19 +697,23 @@ export function renderCard(canvas: HTMLCanvasElement, input: RenderInput) {
   const lh = fs * d.lineHeight;
 
   const basmalaOn = d.showBasmala && verse.verseNumber === 1 && verse.surahNumber !== 1 && verse.surahNumber !== 9;
-  const blockH = bodyLines.length * lh + (basmalaOn ? lh * 0.9 : 0) + trBlockH;
+  // البسملة تُرسم على سطر ثابت ومنفصل قرب أعلى البطاقة، بمعزل عن توسيط نص الآية رأسيًا
+  const basmalaFS = fs * 0.6;
+  const basmalaLH = basmalaFS * 1.5;
+  const basmalaSpace = basmalaOn ? basmalaLH + fs * 0.35 : 0;
+  const blockH = bodyLines.length * lh + trBlockH;
   const areaTop = topY;
   const areaBottom = panelH ? panelY - 16 : bottomLimit;
-  let y = areaTop + (areaBottom - areaTop - blockH) / 2 + lh / 2 + d.verseOffsetY * 0.15 * H;
-  y = Math.max(areaTop + lh / 2, y);
+  const contentTop = areaTop + basmalaSpace;
+  let y = contentTop + (areaBottom - contentTop - blockH) / 2 + lh / 2 + d.verseOffsetY * 0.15 * H;
+  y = Math.max(contentTop + lh / 2, y);
 
   ctx.shadowColor = theme.light ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.9)";
   ctx.shadowBlur = 14;
   if (basmalaOn) {
-    ctx.font = `400 ${fs * 0.82}px ${qFont}`;
+    ctx.font = `400 ${basmalaFS}px ${qFont}`;
     ctx.fillStyle = theme.accent;
-    ctx.fillText(BASMALA, W / 2, y);
-    y += lh * 0.9;
+    ctx.fillText(BASMALA, W / 2, areaTop + basmalaLH * 0.7);
     ctx.font = `400 ${fs}px ${qFont}`;
     ctx.fillStyle = theme.verse;
   }
@@ -708,7 +868,7 @@ export async function ensureFonts(d: CardDesign) {
 /** تحميل صورة الخلفية (مع CORS) */
 export function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
-    if (!url || url.startsWith("gradient:")) return resolve(null);
+    if (!url || url.startsWith("gradient:") || url.startsWith("anim:")) return resolve(null);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);

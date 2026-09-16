@@ -4,6 +4,7 @@
 import JSZip from "jszip";
 import { VerseData, ayahAudioFallbacks } from "./quranData";
 import { CardDesign, renderCard, RenderAnim, ensureFonts, loadImage } from "./renderer";
+import type { FFmpeg as FFmpegType } from "@ffmpeg/ffmpeg";
 
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -249,6 +250,135 @@ export function recordVideo(params: {
     },
     done,
   };
+}
+
+// ───────────────────── تجهيز فيديو جاهز للنشر (MP4 عالمي) ─────────────────────
+// نستخدم ffmpeg.wasm لتحويل ناتج التسجيل (الذي قد يخرج WebM على بعض المتصفحات)
+// إلى MP4 قياسي H.264/AAC مع "+faststart" — الصيغة التي تقبلها كل منصات التواصل
+// الاجتماعي (إنستغرام، تيك توك، واتساب، إكس، يوتيوب) للنشر المباشر، مع تحكم بالجودة
+// والحجم عبر CRF وتحديد أقصى بُعد للإطار حتى لا يكبر حجم الملف بلا داعٍ.
+let ffmpegSingleton: FFmpegType | null = null;
+let ffmpegLoading: Promise<FFmpegType> | null = null;
+
+async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpegType> {
+  if (ffmpegSingleton) return ffmpegSingleton;
+  if (ffmpegLoading) return ffmpegLoading;
+  ffmpegLoading = (async () => {
+    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+    const { toBlobURL } = await import("@ffmpeg/util");
+    const ff = new FFmpeg();
+    if (onLog) ff.on("log", ({ message }: { message: string }) => onLog(message));
+    // نستضيف ملفات محرك ffmpeg.wasm محليًا (public/ffmpeg) بدلاً من الاعتماد على CDN خارجي،
+    // لضمان عمل التحويل دون اتصال بخدمة خارجية وبأقصى موثوقية على كل الشبكات.
+    const base = "/ffmpeg";
+    await ff.load({
+      coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+    ffmpegSingleton = ff;
+    return ff;
+  })();
+  try {
+    return await ffmpegLoading;
+  } catch (e) {
+    ffmpegLoading = null;
+    throw e;
+  }
+}
+
+/** هل يدعم هذا المتصفح تحويل الفيديو محليًا (WebAssembly)؟ */
+export function canFinalizeVideo() {
+  return typeof WebAssembly !== "undefined";
+}
+
+export interface FinalizeOptions {
+  /** أقصى بُعد (عرض أو ارتفاع) للإطار الناتج — يحافظ على الأبعاد الأصغر كما هي */
+  maxDimension?: number;
+  /** جودة الترميز — أرقام أصغر = جودة أعلى وحجم أكبر (18 ممتاز، 23 متوسط) */
+  crf?: number;
+  onProgress?: (percent: number) => void;
+  onStage?: (stage: string) => void;
+}
+
+/**
+ * يحوّل ناتج التسجيل إلى MP4 قياسي (H.264 + AAC + faststart) جاهز للنشر
+ * والمشاركة المباشرة على مواقع التواصل الاجتماعي، بجودة عالية وحجم معتدل.
+ */
+export async function finalizeShareableMp4(input: Blob, srcExt: string, opts: FinalizeOptions = {}): Promise<Blob> {
+  const { maxDimension = 1920, crf = 22 } = opts;
+  opts.onStage?.("تحميل محرك التحويل");
+  const ff = await getFFmpeg();
+  const inName = `in_${Date.now()}.${srcExt === "mp4" ? "mp4" : "webm"}`;
+  const outName = `out_${Date.now()}.mp4`;
+
+  const progressHandler = ({ progress }: { progress: number }) => {
+    if (Number.isFinite(progress)) opts.onProgress?.(Math.max(0, Math.min(100, Math.round(progress * 100))));
+  };
+  ff.on("progress", progressHandler);
+
+  try {
+    opts.onStage?.("تحضير الملف");
+    const buf = new Uint8Array(await input.arrayBuffer());
+    await ff.writeFile(inName, buf);
+
+    opts.onStage?.("ترميز MP4 عالي الجودة");
+    const scale = `scale=w='min(iw,${maxDimension})':h='min(ih,${maxDimension})':force_original_aspect_ratio=decrease:force_divisible_by=2`;
+    await ff.exec([
+      "-i",
+      inName,
+      "-vf",
+      scale,
+      "-c:v",
+      "libx264",
+      "-profile:v",
+      "high",
+      "-level",
+      "4.1",
+      "-preset",
+      "medium",
+      "-crf",
+      String(crf),
+      "-pix_fmt",
+      "yuv420p",
+      "-r",
+      "30",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-ar",
+      "44100",
+      "-movflags",
+      "+faststart",
+      outName,
+    ]);
+
+    const data = await ff.readFile(outName);
+    const bytes = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(String(data));
+    return new Blob([bytes.buffer as ArrayBuffer], { type: "video/mp4" });
+  } finally {
+    ff.off("progress", progressHandler);
+    await ff.deleteFile(inName).catch(() => {});
+    await ff.deleteFile(outName).catch(() => {});
+  }
+}
+
+export type ShareResult = "shared" | "unsupported" | "cancelled" | "error";
+
+/** مشاركة الفيديو مباشرة عبر واجهة المشاركة الأصلية للنظام (إن كانت متاحة) */
+export async function shareVideoFile(blob: Blob, filename: string, text?: string): Promise<ShareResult> {
+  try {
+    const nav: any = navigator;
+    const file = new File([blob], filename, { type: blob.type || "video/mp4" });
+    if (nav.canShare && nav.canShare({ files: [file] }) && nav.share) {
+      await nav.share({ files: [file], text, title: filename });
+      return "shared";
+    }
+    return "unsupported";
+  } catch (e: any) {
+    if (e?.name === "AbortError") return "cancelled";
+    return "error";
+  }
 }
 
 /** توليد نص منشور جاهز للنشر */

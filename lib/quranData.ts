@@ -35,7 +35,8 @@ export interface BackgroundMedia {
   id: string;
   name: string;
   url: string;
-  type: "image" | "video" | "gradient";
+  type: "image" | "video" | "gradient" | "animated";
+  category?: string;
   credit?: string;
 }
 
@@ -187,7 +188,7 @@ export const TRANSLATION_LANGUAGES: TranslationLang[] = [
   { code: "nl", name: "Dutch — Keyzer", nativeName: "Nederlands", edition: "nl.keyzer", rtl: false },
   { code: "ru", name: "Russian — Kuliev", nativeName: "Русский", edition: "ru.kuliev", rtl: false },
   { code: "tr", name: "Turkish — Diyanet", nativeName: "Türkçe", edition: "tr.diyanet", rtl: false },
-  { code: "ur", name: "Urdu — Jalandhri", nativeName: "اردو", edition: "ur.jalandhri", rtl: true },
+  { code: "ur", name: "Urdu — Jalandhri", nativeName: "اردو", edition: "ur.jalandhry", rtl: true },
   { code: "fa", name: "Persian — Makarem", nativeName: "فارسی", edition: "fa.makarem", rtl: true },
   { code: "id", name: "Indonesian — Kemenag", nativeName: "Bahasa Indonesia", edition: "id.indonesian", rtl: false },
   { code: "ms", name: "Malay — Basmeih", nativeName: "Bahasa Melayu", edition: "ms.basmeih", rtl: false },
@@ -202,25 +203,66 @@ export const TRANSLATION_LANGUAGES: TranslationLang[] = [
 export const getLang = (code: string) => TRANSLATION_LANGUAGES.find((l) => l.code === code) || TRANSLATION_LANGUAGES[0];
 
 // ─────────────────────────────── الخلفيات ───────────────────────────────
+// كل صور Unsplash تصل بدون قيود CORS (تدعم الرسم على Canvas والتصدير كفيديو).
+const u = (id: string) => `https://images.unsplash.com/${id}?w=2400&auto=format&fit=crop&q=80`;
+
 export const BACKGROUND_LIBRARY: BackgroundMedia[] = [
-  { id: "mosque", name: "محراب ومسجد", type: "image", url: "https://images.unsplash.com/photo-1542810634-71277d95dcbb?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "kaaba-night", name: "الحرم ليلاً", type: "image", url: "https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "madinah", name: "المسجد النبوي", type: "image", url: "https://images.unsplash.com/photo-1565552645632-d725f8bfc19a?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "desert", name: "صحراء وغروب", type: "image", url: "https://images.unsplash.com/photo-1509316785289-025f5b846b35?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "sea", name: "شاطئ وغروب", type: "image", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "mountains", name: "جبال وضباب", type: "image", url: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "stars", name: "سماء ونجوم", type: "image", url: "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "lantern", name: "فوانيس رمضانية", type: "image", url: "https://images.unsplash.com/photo-1519817650390-64a93db51149?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "forest", name: "غابة وضوء", type: "image", url: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "rain", name: "مطر على زجاج", type: "image", url: "https://images.unsplash.com/photo-1428592953211-077101b2021b?w=2400&auto=format&fit=crop&q=80", credit: "Unsplash" },
-  { id: "g-emerald", name: "تدرّج أخضر حرمي", type: "gradient", url: "gradient:#062a1f,#0b3d2e,#123f33" },
-  { id: "g-navy", name: "تدرّج كحلي ذهبي", type: "gradient", url: "gradient:#0b1230,#12204d,#1b1b3a" },
-  { id: "g-brown", name: "تدرّج بني عتيق", type: "gradient", url: "gradient:#2b1d12,#3d2a1a,#1f150c" },
-  { id: "g-black", name: "أسود فحمي", type: "gradient", url: "gradient:#000000,#0d0d0d,#1a1a1a" },
+  // ── المعالم والعمارة الإسلامية ──
+  { id: "mosque", name: "محراب ومسجد", type: "image", category: "معالم", url: u("photo-1542810634-71277d95dcbb"), credit: "Unsplash" },
+  { id: "kaaba-night", name: "الحرم ليلاً", type: "image", category: "معالم", url: u("photo-1591604129939-f1efa4d9f7fa"), credit: "Unsplash" },
+  { id: "madinah", name: "المسجد النبوي", type: "image", category: "معالم", url: u("photo-1565552645632-d725f8bfc19a"), credit: "Unsplash" },
+  { id: "minaret", name: "مئذنة وسماء", type: "image", category: "معالم", url: u("photo-1519817650390-64a93db51149"), credit: "Unsplash" },
+  { id: "dome", name: "قبة مزخرفة", type: "image", category: "معالم", url: u("photo-1564769625905-50e93615e769"), credit: "Unsplash" },
+  { id: "arch", name: "أقواس عربية", type: "image", category: "معالم", url: u("photo-1548013146-72479768bada"), credit: "Unsplash" },
+  { id: "geometry", name: "زخرفة هندسية إسلامية", type: "image", category: "معالم", url: u("photo-1725710017265-f33a3129726e"), credit: "Unsplash" },
+  { id: "calligraphy-wall", name: "جدار خط عربي", type: "image", category: "معالم", url: u("photo-1591123120675-6f7f1aae0e5b"), credit: "Unsplash" },
+  { id: "carpet", name: "سجادة مزخرفة", type: "image", category: "معالم", url: u("photo-1600166898405-da9535204843"), credit: "Unsplash" },
+  { id: "lantern2", name: "فانوس رمضاني", type: "image", category: "معالم", url: u("photo-1639918063455-65e676f2ca60"), credit: "Unsplash" },
+  // ── طبيعة وسماء ──
+  { id: "desert", name: "صحراء وغروب", type: "image", category: "طبيعة", url: u("photo-1509316785289-025f5b846b35"), credit: "Unsplash" },
+  { id: "dunes", name: "كثبان رملية", type: "image", category: "طبيعة", url: u("photo-1547234935-80c7145ec969"), credit: "Unsplash" },
+  { id: "sea", name: "شاطئ وغروب", type: "image", category: "طبيعة", url: u("photo-1507525428034-b723cf961d3e"), credit: "Unsplash" },
+  { id: "ocean-wave", name: "أمواج المحيط", type: "image", category: "طبيعة", url: u("photo-1505142468610-359e7d316be0"), credit: "Unsplash" },
+  { id: "mountains", name: "جبال وضباب", type: "image", category: "طبيعة", url: u("photo-1464822759023-fed622ff2c3b"), credit: "Unsplash" },
+  { id: "snow-peak", name: "قمم ثلجية", type: "image", category: "طبيعة", url: u("photo-1519681393784-d120267933ba"), credit: "Unsplash" },
+  { id: "stars", name: "سماء ونجوم", type: "image", category: "طبيعة", url: u("photo-1506703719100-a0f3a48c0f86"), credit: "Unsplash" },
+  { id: "aurora", name: "شفق قطبي", type: "image", category: "طبيعة", url: u("photo-1483347756197-71ef80e95f73"), credit: "Unsplash" },
+  { id: "milkyway", name: "مجرة درب التبانة", type: "image", category: "طبيعة", url: u("photo-1444703686981-a3abbc4d4fe3"), credit: "Unsplash" },
+  { id: "clouds", name: "غيوم من الأعلى", type: "image", category: "طبيعة", url: u("photo-1499956827185-0d63ee78a910"), credit: "Unsplash" },
+  { id: "forest", name: "غابة وضوء", type: "image", category: "طبيعة", url: u("photo-1441974231531-c6227db76b6e"), credit: "Unsplash" },
+  { id: "misty-path", name: "طريق ضبابي", type: "image", category: "طبيعة", url: u("photo-1441974231531-c6227db76b6e"), credit: "Unsplash" },
+  { id: "rain", name: "مطر على زجاج", type: "image", category: "طبيعة", url: u("photo-1428592953211-077101b2021b"), credit: "Unsplash" },
+  { id: "waterfall", name: "شلال أخضر", type: "image", category: "طبيعة", url: u("photo-1433086966358-54859d0ed716"), credit: "Unsplash" },
+  { id: "garden", name: "حديقة خضراء", type: "image", category: "طبيعة", url: u("photo-1585320806297-9794b3e4eeae"), credit: "Unsplash" },
+  { id: "palm", name: "نخيل وسماء", type: "image", category: "طبيعة", url: u("photo-1548013146-72479768bada"), credit: "Unsplash" },
+  // ── قوام وأنسجة ──
+  { id: "marble", name: "رخام فاخر", type: "image", category: "قوام", url: u("photo-1541417904950-b855846fe074"), credit: "Unsplash" },
+  { id: "gold-texture", name: "قوام ذهبي", type: "image", category: "قوام", url: u("photo-1513346940221-6f673d962e97"), credit: "Unsplash" },
+  { id: "smoke", name: "دخان بخور", type: "image", category: "قوام", url: u("photo-1518073399906-6ea6b5c4c1e3"), credit: "Unsplash" },
+  { id: "bokeh", name: "أضواء بوكيه", type: "image", category: "قوام", url: u("photo-1518895312237-a9e23508077d"), credit: "Unsplash" },
+  // ── تدرّجات ──
+  { id: "g-emerald", name: "تدرّج أخضر حرمي", type: "gradient", category: "تدرّج", url: "gradient:#062a1f,#0b3d2e,#123f33" },
+  { id: "g-navy", name: "تدرّج كحلي ذهبي", type: "gradient", category: "تدرّج", url: "gradient:#0b1230,#12204d,#1b1b3a" },
+  { id: "g-brown", name: "تدرّج بني عتيق", type: "gradient", category: "تدرّج", url: "gradient:#2b1d12,#3d2a1a,#1f150c" },
+  { id: "g-black", name: "أسود فحمي", type: "gradient", category: "تدرّج", url: "gradient:#000000,#0d0d0d,#1a1a1a" },
+  { id: "g-purple", name: "تدرّج بنفسجي ليلي", type: "gradient", category: "تدرّج", url: "gradient:#1a0b2e,#2d1b4e,#0f0a1f" },
+  { id: "g-rose", name: "تدرّج وردي غروب", type: "gradient", category: "تدرّج", url: "gradient:#3d1a1a,#4a2418,#1a0d0d" },
+  // ── خلفيات متحركة (تُرسم مباشرة، بلا أي ملفات خارجية → متوافقة مع تصدير الفيديو) ──
+  { id: "anim-stars", name: "نجوم متلألئة", type: "animated", category: "متحركة", url: "anim:stars" },
+  { id: "anim-particles", name: "جزيئات ذهبية عائمة", type: "animated", category: "متحركة", url: "anim:particles" },
+  { id: "anim-aurora", name: "سديم متحرك", type: "animated", category: "متحركة", url: "anim:aurora" },
+  { id: "anim-geometry", name: "زخرفة هندسية دوارة", type: "animated", category: "متحركة", url: "anim:geometry" },
+  { id: "anim-waves", name: "أمواج ضوء", type: "animated", category: "متحركة", url: "anim:waves" },
+  { id: "anim-rays", name: "أشعة نور علوية", type: "animated", category: "متحركة", url: "anim:rays" },
 ];
+
+export const BACKGROUND_CATEGORIES = Array.from(new Set(BACKGROUND_LIBRARY.map((b) => b.category || "أخرى")));
 
 // ─────────────────────────────── التخزين المؤقت ───────────────────────────────
 const memCache = new Map<string, any>();
+
+// v2: بادئة جديدة لإبطال أي بيانات قديمة كانت مخزّنة قبل إصلاح تعريفات الترجمة
+const CACHE_PREFIX = "qh2:";
 
 async function cachedJson<T = any>(url: string, ttlMs = 1000 * 60 * 60 * 12): Promise<T> {
   const now = Date.now();
@@ -229,7 +271,7 @@ async function cachedJson<T = any>(url: string, ttlMs = 1000 * 60 * 60 * 12): Pr
 
   if (typeof window !== "undefined") {
     try {
-      const raw = localStorage.getItem("qh:" + url);
+      const raw = localStorage.getItem(CACHE_PREFIX + url);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.exp > now) {
@@ -247,7 +289,7 @@ async function cachedJson<T = any>(url: string, ttlMs = 1000 * 60 * 60 * 12): Pr
   memCache.set(url, entry);
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("qh:" + url, JSON.stringify(entry));
+      localStorage.setItem(CACHE_PREFIX + url, JSON.stringify(entry));
     } catch {}
   }
   return data;
@@ -258,7 +300,7 @@ export function clearQuranCache() {
   memCache.clear();
   if (typeof window === "undefined") return;
   Object.keys(localStorage)
-    .filter((k) => k.startsWith("qh:"))
+    .filter((k) => k.startsWith("qh") && k.includes(":"))
     .forEach((k) => localStorage.removeItem(k));
 }
 
@@ -266,17 +308,28 @@ export function clearQuranCache() {
 const API = "https://api.alquran.cloud/v1";
 const TAFSIR_CDN = "https://cdn.jsdelivr.net/gh/spa5k/tafsir_api@main/tafsir";
 
-/** نص السورة كاملاً (عثماني + إملائي + ترجمة) في طلب واحد */
+/**
+ * نص السورة كاملاً (عثماني + إملائي + ترجمة) في طلب واحد.
+ * ملاحظة مهمة: إذا طُلب معرّف إصدار غير صحيح، فإن alquran.cloud لا يُرجع خطأ بل
+ * يستبدله بإصدار عربي آخر بصمت (غالباً نسخة عثمانية أخرى) — ما كان يظهر سابقاً
+ * كـ"ترجمة" هي فعلياً نص القرآن العربي نفسه. لذا نتحقق من حقل identifier في كل
+ * عنصر بدل الوثوق بترتيب المصفوفة، ونتجاهل أي عنصر لا يطابق ما طلبناه.
+ */
 export async function fetchSurahBundle(surah: number, langCode: string) {
   const lang = getLang(langCode);
   const url = `${API}/surah/${surah}/editions/quran-uthmani,quran-simple,${lang.edition}`;
   const json = await cachedJson<any>(url);
   if (json.code !== 200) throw new Error("فشل تحميل السورة");
-  const [uth, simple, trans] = json.data as any[];
+  const items: any[] = json.data;
+  const byId = (id: string) => items.find((it) => it?.identifier === id);
+  const uth = byId("quran-uthmani") || items[0];
+  const simple = byId("quran-simple") || items[1];
+  // نقبل الترجمة فقط إذا كان المعرّف المُرجَع مطابقاً تماماً لما طلبناه
+  const transItem = byId(lang.edition);
   return {
     uthmani: uth.ayahs.map((a: any) => a.text as string),
     simple: simple.ayahs.map((a: any) => a.text as string),
-    translation: trans.ayahs.map((a: any) => a.text as string),
+    translation: transItem ? transItem.ayahs.map((a: any) => a.text as string) : null,
     meta: uth as { name: string; englishName: string; numberOfAyahs: number; revelationType: string },
   };
 }
@@ -299,13 +352,29 @@ export async function fetchTafseer(surah: number, verse: number, tafseerId: stri
   }
 }
 
-/** إزالة البسملة الملحقة في بداية أول آية (كما ترد في بعض إصدارات Tanzil) */
+/** إزالة تشكيل النص للمقارنة المرنة (حركات + تنوين + شدة + مدّة) */
+function stripDiacritics(s: string) {
+  return s.replace(/[ً-ٰٟۖ-ࣰۭ-ࣿ]/g, "").replace(/[إأآاٱ]/g, "ا").replace(/ى/g, "ي").replace(/\s+/g, " ").trim();
+}
+
+const BASMALA_BARE = stripDiacritics("بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ");
+
+/**
+ * إزالة البسملة الملحقة في بداية أول آية من كل سورة (كما ترد فعلياً في بيانات
+ * Tanzil لكل السور غير الفاتحة والتوبة) لأننا نرسمها بشكل مستقل في البطاقة.
+ * المقارنة تتجاهل التشكيل لضمان العمل حتى مع اختلافات طفيفة في الترميز.
+ */
 export function stripLeadingBasmala(text: string, surah: number, verse: number) {
   if (verse !== 1 || surah === 1 || surah === 9) return text;
-  const b = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
-  if (text.startsWith(b)) return text.slice(b.length).trim();
-  const b2 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
-  if (text.startsWith(b2)) return text.slice(b2.length).trim();
+  const words = text.trim().split(/\s+/);
+  // البسملة أربع كلمات؛ نبحث عن أطول تطابق من بداية النص (4 ثم 3 كحدّ أدنى تحسباً لاختلاف الفصل)
+  for (const n of [4, 3]) {
+    if (words.length <= n) continue;
+    const head = stripDiacritics(words.slice(0, n).join(" "));
+    if (BASMALA_BARE.startsWith(head) || head === BASMALA_BARE) {
+      return words.slice(n).join(" ").trim();
+    }
+  }
   return text;
 }
 
@@ -334,7 +403,7 @@ export async function fetchVerseDetails(
       tafseerArabic: taf.text,
       tafseerName: taf.name,
       reciterName: getReciter(reciterId).name,
-      translations: { [langCode]: bundle.translation[v - 1] || "" },
+      translations: { [langCode]: bundle.translation ? bundle.translation[v - 1] || "" : "" },
     };
   } catch (err) {
     console.error("fetchVerseDetails", err);

@@ -40,7 +40,7 @@ const QuranCanvas = forwardRef<QuranCanvasHandle, Props>(function QuranCanvas({ 
     }
     mediaRef.current = null;
 
-    if (!url || url.startsWith("gradient:")) {
+    if (!url || url.startsWith("gradient:") || url.startsWith("anim:")) {
       setMediaReady((n) => n + 1);
       return;
     }
@@ -88,7 +88,7 @@ const QuranCanvas = forwardRef<QuranCanvasHandle, Props>(function QuranCanvas({ 
       if (!alive) return;
       draw();
       onReady?.();
-      if (mediaRef.current instanceof HTMLVideoElement) {
+      if (mediaRef.current instanceof HTMLVideoElement || design.bgUrl.startsWith("anim:")) {
         const loop = () => {
           if (!alive) return;
           draw();

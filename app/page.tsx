@@ -9,6 +9,7 @@ import {
   SURAHS,
   getSurah,
   BACKGROUND_LIBRARY,
+  BACKGROUND_CATEGORIES,
   TAFSEER_OPTIONS,
   TRANSLATION_LANGUAGES,
   RECITERS_LIST,
@@ -19,7 +20,19 @@ import {
   clearQuranCache,
 } from "@/lib/quranData";
 import { CardDesign, DEFAULT_DESIGN, THEMES, QURAN_FONTS, PRESETS, physicalSize, AspectRatio, Resolution } from "@/lib/renderer";
-import { exportImage, exportBatchZip, recordVideo, VideoJob, VideoOptions, buildCaption, downloadBlob, pickMime } from "@/lib/exporter";
+import {
+  exportImage,
+  exportBatchZip,
+  recordVideo,
+  VideoJob,
+  VideoOptions,
+  buildCaption,
+  downloadBlob,
+  pickMime,
+  finalizeShareableMp4,
+  shareVideoFile,
+  canFinalizeVideo,
+} from "@/lib/exporter";
 import {
   Download,
   Sparkles,
@@ -103,7 +116,9 @@ export default function Home() {
   const batchSignal = useRef({ cancelled: false });
   const [imageFormat, setImageFormat] = useState<"png" | "jpg" | "webp">("png");
   const [caption, setCaption] = useState("");
-  const [lastVideo, setLastVideo] = useState<{ url: string; ext: string; size: number } | null>(null);
+  const [lastVideo, setLastVideo] = useState<{ url: string; blob: Blob; ext: string; size: number; ready: boolean } | null>(null);
+  const [finalizing, setFinalizing] = useState<{ stage: string; percent: number } | null>(null);
+  const [readyForSocial, setReadyForSocial] = useLocalState("qh:readySocial", true);
 
   const { toasts, push, remove } = useToasts();
   const meta = getSurah(surah);
@@ -283,19 +298,52 @@ export default function Home() {
       jobRef.current = job;
       const result = await job.done;
       if (result) {
-        const name = `Quran_${meta.name}_${verseNum}-${endVerseNum}_${c.width}x${c.height}.${result.ext}`;
-        downloadBlob(result.blob, name);
-        setLastVideo({ url: URL.createObjectURL(result.blob), ext: result.ext, size: result.blob.size });
-        push("success", `تم إنتاج الفيديو (${(result.blob.size / 1048576).toFixed(1)} MB) بصيغة ${result.ext.toUpperCase()}`);
+        let blob = result.blob;
+        let ext = result.ext;
+        const namePrefix = `Quran_${meta.name}_${verseNum}-${endVerseNum}_${c.width}x${c.height}`;
+        // تحويل تلقائي لصيغة MP4 عالمية جاهزة للنشر والمشاركة المباشرة على مواقع التواصل الاجتماعي
+        if (readyForSocial && canFinalizeVideo() && ext !== "mp4") {
+          try {
+            setFinalizing({ stage: "تحميل محرك التحويل", percent: 0 });
+            const mp4 = await finalizeShareableMp4(blob, ext, {
+              maxDimension: c.width >= 3000 ? 1920 : c.width,
+              crf: 21,
+              onStage: (stage) => setFinalizing((f) => ({ stage, percent: f?.percent ?? 0 })),
+              onProgress: (percent) => setFinalizing((f) => ({ stage: f?.stage || "ترميز MP4 عالي الجودة", percent })),
+            });
+            blob = mp4;
+            ext = "mp4";
+          } catch (e) {
+            console.error("finalize failed", e);
+            push("info", "تم إنتاج الفيديو بصيغته الأصلية (تعذّر التحويل التلقائي لـ MP4)");
+          } finally {
+            setFinalizing(null);
+          }
+        }
+        const name = `${namePrefix}.${ext}`;
+        downloadBlob(blob, name);
+        setLastVideo({ url: URL.createObjectURL(blob), blob, ext, size: blob.size, ready: ext === "mp4" });
+        push("success", `تم إنتاج الفيديو (${(blob.size / 1048576).toFixed(1)} MB) بصيغة ${ext.toUpperCase()}${ext === "mp4" ? " — جاهز للنشر المباشر" : ""}`);
       } else push("info", "تم إلغاء التسجيل");
     } catch (e) {
       console.error(e);
       push("error", "تعذّر إنتاج الفيديو — تأكد من استخدام متصفح Chrome/Edge حديث");
     } finally {
       setRecording(null);
+      setFinalizing(null);
       jobRef.current = null;
       canvasHandle.current?.draw();
     }
+  };
+
+  const handleShareVideo = async () => {
+    if (!lastVideo) return;
+    const filename = `Quran_${meta.name}_${verseNum}-${endVerseNum}.${lastVideo.ext}`;
+    const res = await shareVideoFile(lastVideo.blob, filename, design.channelName || undefined);
+    if (res === "shared") push("success", "تم فتح نافذة المشاركة");
+    else if (res === "cancelled") return;
+    else if (res === "unsupported") push("info", "المشاركة المباشرة غير مدعومة على هذا المتصفح/الجهاز — استخدم التنزيل ثم الرفع اليدوي");
+    else push("error", "تعذّرت المشاركة المباشرة");
   };
 
   const handleCaption = async () => {
@@ -507,15 +555,35 @@ export default function Home() {
             </button>
           </div>
 
+          {finalizing && (
+            <div className="mt-4 animate-fadeUp rounded-2xl border border-sky-500/30 bg-sky-950/30 p-3">
+              <div className="mb-2 flex items-center justify-between text-xs font-bold text-sky-200">
+                <span>
+                  <Wand2 className="ml-1 inline h-4 w-4" /> {finalizing.stage}…
+                </span>
+                <span dir="ltr">{finalizing.percent}%</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-night-900">
+                <div className="h-full bg-sky-400 transition-all" style={{ width: `${finalizing.percent}%` }} />
+              </div>
+            </div>
+          )}
+
           {lastVideo && (
             <div className="mt-4 animate-fadeUp rounded-2xl border border-emerald-500/30 bg-emerald-950/30 p-3">
-              <div className="mb-2 flex items-center justify-between text-xs">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="font-bold text-emerald-200">
                   <Film className="ml-1 inline h-4 w-4" /> آخر فيديو مُنتج — {(lastVideo.size / 1048576).toFixed(1)} MB ({lastVideo.ext.toUpperCase()})
+                  {lastVideo.ready && <span className="mr-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300">جاهز للنشر المباشر</span>}
                 </span>
-                <a className="text-gold-300 underline" href={lastVideo.url} download={`Quran_${meta.name}_${verseNum}-${endVerseNum}.${lastVideo.ext}`}>
-                  إعادة التنزيل
-                </a>
+                <div className="flex items-center gap-3">
+                  <button onClick={handleShareVideo} className="font-bold text-fuchsia-300 underline">
+                    <Share2 className="ml-1 inline h-3.5 w-3.5" /> مشاركة مباشرة
+                  </button>
+                  <a className="text-gold-300 underline" href={lastVideo.url} download={`Quran_${meta.name}_${verseNum}-${endVerseNum}.${lastVideo.ext}`}>
+                    إعادة التنزيل
+                  </a>
+                </div>
               </div>
               <video src={lastVideo.url} controls className="max-h-64 w-full rounded-xl bg-black" />
             </div>
@@ -767,18 +835,37 @@ export default function Home() {
                     <label className="label">نمط الإطار</label>
                     <Segmented value={design.frame} onChange={(v) => upd({ frame: v as any })} cols={5} options={[{ value: "none", label: "بدون" }, { value: "thin", label: "رفيع" }, { value: "double", label: "مزدوج" }, { value: "corners", label: "زوايا" }, { value: "ornate", label: "مزخرف" }]} />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {BACKGROUND_LIBRARY.map((bg) => (
-                      <button
-                        key={bg.id}
-                        onClick={() => upd({ bgUrl: bg.url })}
-                        className={`group relative h-16 overflow-hidden rounded-xl border text-right transition ${design.bgUrl === bg.url ? "border-gold-400 ring-2 ring-gold-500/40" : "border-white/10 hover:border-white/40"}`}
-                        style={bg.type === "gradient" ? { background: `linear-gradient(135deg, ${bg.url.slice(9)})` } : { backgroundImage: `url(${bg.url.replace("w=2400", "w=400")})`, backgroundSize: "cover", backgroundPosition: "center" }}
-                      >
-                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 py-1 text-[10px] font-bold text-white">{bg.name}</span>
-                      </button>
-                    ))}
-                  </div>
+                  {BACKGROUND_CATEGORIES.map((cat) => (
+                    <div key={cat} className="space-y-2">
+                      <label className="label !mb-0">{cat} · {BACKGROUND_LIBRARY.filter((b) => (b.category || "أخرى") === cat).length}</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {BACKGROUND_LIBRARY.filter((b) => (b.category || "أخرى") === cat).map((bg) => (
+                          <button
+                            key={bg.id}
+                            onClick={() => upd({ bgUrl: bg.url })}
+                            className={`group relative h-16 overflow-hidden rounded-xl border text-right transition ${design.bgUrl === bg.url ? "border-gold-400 ring-2 ring-gold-500/40" : "border-white/10 hover:border-white/40"}`}
+                            style={
+                              bg.type === "gradient"
+                                ? { background: `linear-gradient(135deg, ${bg.url.slice(9)})` }
+                                : bg.type === "animated"
+                                ? { background: "linear-gradient(120deg, #1a0b2e, #2d1b4e, #0b3d2e, #1a0b2e)", backgroundSize: "300% 300%", animation: "bgShift 6s ease infinite" }
+                                : { backgroundImage: `url(${bg.url.replace("w=2400", "w=400")})`, backgroundSize: "cover", backgroundPosition: "center" }
+                            }
+                          >
+                            {bg.type === "animated" && <Sparkles className="absolute right-2 top-1.5 h-3.5 w-3.5 text-gold-300 drop-shadow" />}
+                            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 py-1 text-[10px] font-bold text-white">{bg.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <style jsx global>{`
+                    @keyframes bgShift {
+                      0% { background-position: 0% 50%; }
+                      50% { background-position: 100% 50%; }
+                      100% { background-position: 0% 50%; }
+                    }
+                  `}</style>
                   <label className="btn-ghost w-full cursor-pointer !py-2 text-xs">
                     <Upload className="h-4 w-4 text-gold-300" /> رفع صورة أو فيديو خلفية (MP4/WebM)
                     <input type="file" accept="image/*,video/mp4,video/webm" className="hidden" onChange={(e) => e.target.files?.[0] && uploadBackground(e.target.files[0])} />
@@ -863,9 +950,20 @@ export default function Home() {
                   <Slider label="فاصل صامت بين الآيات" value={videoOpts.gapSeconds} min={0} max={3} step={0.1} onChange={(v) => setVideoOpts({ ...videoOpts, gapSeconds: v })} format={(v) => `${v.toFixed(1)} ث`} />
                   <Slider label="تكرار كل آية" value={videoOpts.repeat} min={1} max={3} onChange={(v) => setVideoOpts({ ...videoOpts, repeat: v })} format={(v) => `${v}×`} />
                   <Toggle label="سماع الصوت أثناء التسجيل" checked={videoOpts.monitor} onChange={(v) => setVideoOpts({ ...videoOpts, monitor: v })} />
-                  <button onClick={handleVideo} disabled={!verseData || !!recording} className="btn w-full bg-gradient-to-l from-fuchsia-600 to-purple-600 text-white shadow-lg hover:brightness-110">
-                    <Video className="h-5 w-5" /> {recording ? "جاري التسجيل…" : `إنتاج فيديو (${toArabicDigits(rangeCount)} آية • ${design.aspect} • ${design.resolution.toUpperCase()})`}
+                  <Toggle
+                    label="تحويل تلقائي لصيغة MP4 جاهزة للنشر"
+                    hint="ترميز H.264/AAC متوافق مع كل مواقع التواصل الاجتماعي، بجودة عالية وحجم معتدل"
+                    checked={readyForSocial}
+                    onChange={setReadyForSocial}
+                  />
+                  <button onClick={handleVideo} disabled={!verseData || !!recording || !!finalizing} className="btn w-full bg-gradient-to-l from-fuchsia-600 to-purple-600 text-white shadow-lg hover:brightness-110">
+                    <Video className="h-5 w-5" /> {recording ? "جاري التسجيل…" : finalizing ? "جاري التحويل…" : `إنتاج فيديو (${toArabicDigits(rangeCount)} آية • ${design.aspect} • ${design.resolution.toUpperCase()})`}
                   </button>
+                  {lastVideo && (
+                    <button onClick={handleShareVideo} className="btn-ghost w-full">
+                      <Share2 className="h-4 w-4 text-fuchsia-300" /> مشاركة الفيديو الأخير مباشرة لمواقع التواصل
+                    </button>
+                  )}
                   <p className="text-[10px] text-slate-500">أبقِ التبويب مفتوحاً وظاهراً أثناء التسجيل؛ الانتقال لتبويب آخر قد يوقف الرسم.</p>
                 </Section>
 
