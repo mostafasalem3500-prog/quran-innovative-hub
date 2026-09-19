@@ -325,36 +325,54 @@ export const BACKGROUND_CATEGORIES = Array.from(new Set(BACKGROUND_LIBRARY.map((
 // ─────────────────────────────── التخزين المؤقت ───────────────────────────────
 const memCache = new Map<string, any>();
 
-// v2: بادئة جديدة لإبطال أي بيانات قديمة كانت مخزّنة قبل إصلاح تعريفات الترجمة
-const CACHE_PREFIX = "qh2:";
+// v3: بادئة جديدة لإبطال أي كاش قديم فوراً عند هذا النشر — كان من الممكن أن تكون بعض
+// الاستجابات المخزَّنة سابقاً (12 ساعة) قد حُفظت وقت عطل مؤقت في الشبكة أو الـAPI قبل توفر
+// الترجمة، فتبقى "الترجمة غير متاحة" محفوظة محلياً في متصفح المستخدم حتى بعد إصلاح الكود.
+const CACHE_PREFIX = "qh3:";
 
-async function cachedJson<T = any>(url: string, ttlMs = 1000 * 60 * 60 * 12): Promise<T> {
+/**
+ * @param shouldCache تحقّق اختياري من صحة الاستجابة قبل تخزينها — إن رجعت false لا تُحفظ
+ *   في الكاش إطلاقاً (حتى لو كانت code:200)، لمنع تجميد استجابة ناقصة (مثل ترجمة مفقودة
+ *   بسبب عطل مؤقت في الـAPI) لمدة 12 ساعة كاملة.
+ * @param forceFresh تجاوز أي قيمة مخزّنة (ذاكرة أو localStorage) وجلب نسخة جديدة فعلياً —
+ *   يُستخدم لإعادة محاولة واحدة فورية عند اكتشاف أن القيمة المخزّنة ناقصة.
+ */
+async function cachedJson<T = any>(
+  url: string,
+  ttlMs = 1000 * 60 * 60 * 12,
+  shouldCache?: (data: T) => boolean,
+  forceFresh = false
+): Promise<T> {
   const now = Date.now();
-  const hit = memCache.get(url);
-  if (hit && hit.exp > now) return hit.data as T;
+  if (!forceFresh) {
+    const hit = memCache.get(url);
+    if (hit && hit.exp > now) return hit.data as T;
 
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem(CACHE_PREFIX + url);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.exp > now) {
-          memCache.set(url, parsed);
-          return parsed.data as T;
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(CACHE_PREFIX + url);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.exp > now) {
+            memCache.set(url, parsed);
+            return parsed.data as T;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
   }
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`);
   const data = (await res.json()) as T;
-  const entry = { data, exp: now + ttlMs };
-  memCache.set(url, entry);
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(CACHE_PREFIX + url, JSON.stringify(entry));
-    } catch {}
+  if (!shouldCache || shouldCache(data)) {
+    const entry = { data, exp: now + ttlMs };
+    memCache.set(url, entry);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(CACHE_PREFIX + url, JSON.stringify(entry));
+      } catch {}
+    }
   }
   return data;
 }
@@ -382,14 +400,32 @@ const TAFSIR_CDN = "https://cdn.jsdelivr.net/gh/spa5k/tafsir_api@main/tafsir";
 export async function fetchSurahBundle(surah: number, langCode: string) {
   const lang = getLang(langCode);
   const url = `${API}/surah/${surah}/editions/quran-uthmani,quran-simple,${lang.edition}`;
-  const json = await cachedJson<any>(url);
+  const byId = (items: any[], id: string) => items.find((it) => it?.identifier === id);
+  // لا نقبل تخزين استجابة في الكاش إلا إذا كانت تحوي فعلاً الإصدارات الثلاثة المطلوبة —
+  // استجابة ناقصة (عطل مؤقت في الـAPI) لا يجب أن تتجمّد لمدة 12 ساعة في localStorage.
+  const isComplete = (j: any) => j?.code === 200 && Array.isArray(j.data) && !!byId(j.data, "quran-uthmani") && !!byId(j.data, lang.edition);
+
+  let json = await cachedJson<any>(url, undefined, isComplete);
   if (json.code !== 200) throw new Error("فشل تحميل السورة");
-  const items: any[] = json.data;
-  const byId = (id: string) => items.find((it) => it?.identifier === id);
-  const uth = byId("quran-uthmani") || items[0];
-  const simple = byId("quran-simple") || items[1];
-  // نقبل الترجمة فقط إذا كان المعرّف المُرجَع مطابقاً تماماً لما طلبناه
-  const transItem = byId(lang.edition);
+  let items: any[] = json.data;
+  let transItem = byId(items, lang.edition);
+
+  // إن نجح الطلب لكن الترجمة المطلوبة غير موجودة ضمن الاستجابة (عطل مؤقت أو استجابة جزئية
+  // من الـAPI)، نعيد المحاولة فوراً بطلب شبكة جديد متجاوزين أي كاش قديم — قبل أن نستسلم
+  // ونعرض "الترجمة غير متوفرة"، حتى لا يظل المستخدم عالقاً برسالة خاطئة رغم أن الترجمة
+  // متاحة فعلياً من المصدر.
+  if (!transItem) {
+    try {
+      json = await cachedJson<any>(url, undefined, isComplete, true);
+      items = json.data;
+      transItem = byId(items, lang.edition);
+    } catch (e) {
+      console.error("fetchSurahBundle retry failed", e);
+    }
+  }
+
+  const uth = byId(items, "quran-uthmani") || items[0];
+  const simple = byId(items, "quran-simple") || items[1];
   return {
     uthmani: uth.ayahs.map((a: any) => a.text as string),
     simple: simple.ayahs.map((a: any) => a.text as string),
