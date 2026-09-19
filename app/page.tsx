@@ -69,6 +69,10 @@ import {
   Shield,
   Search,
   Wand2,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 type Tab = "verse" | "design" | "audio" | "export";
@@ -111,6 +115,9 @@ export default function Home() {
 
   // التصدير
   const canvasHandle = useRef<QuranCanvasHandle | null>(null);
+  const previewWrapRef = useRef<HTMLDivElement | null>(null);
+  const [previewZoom, setPreviewZoom] = useLocalState<number>("qh:zoom", 1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [recording, setRecording] = useState<{ phase: string; percent: number; verseIndex: number; total: number } | null>(null);
   const jobRef = useRef<VideoJob | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
@@ -256,6 +263,26 @@ export default function Home() {
     stopAudio();
     setVerseNum(Math.min(meta.ayahs, Math.max(1, n)));
   };
+
+  // ─────────────── تكبير المعاينة وملء الشاشة ───────────────
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    const el = previewWrapRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      el.requestFullscreen?.().catch(() => push("error", "تعذّر تفعيل وضع ملء الشاشة على هذا المتصفح"));
+    }
+  };
+  const zoomIn = () => setPreviewZoom((z) => Math.min(1.6, Math.round((z + 0.1) * 100) / 100));
+  const zoomOut = () => setPreviewZoom((z) => Math.max(0.6, Math.round((z - 0.1) * 100) / 100));
+  const zoomReset = () => setPreviewZoom(1);
 
   // ─────────────── اختصارات لوحة المفاتيح ───────────────
   useEffect(() => {
@@ -443,18 +470,20 @@ export default function Home() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="chip border-emerald-500/30 bg-emerald-950/60 text-emerald-300">
-              <BookOpen className="h-3 w-3" /> ١١٤ سورة
-            </span>
-            <span className="chip border-gold-500/30 bg-gold-500/10 text-gold-300">
-              <Mic className="h-3 w-3" /> {toArabicDigits(RECITERS_LIST.length)} قارئاً
-            </span>
-            <span className="chip border-sky-500/30 bg-sky-950/60 text-sky-300">
-              <Layers className="h-3 w-3" /> {toArabicDigits(TAFSEER_OPTIONS.length)} تفاسير
-            </span>
-            <span className="chip border-fuchsia-500/30 bg-fuchsia-950/60 text-fuchsia-300">
-              <Globe className="h-3 w-3" /> {toArabicDigits(TRANSLATION_LANGUAGES.length)} لغة
-            </span>
+            <div className="hidden items-center gap-2 lg:flex">
+              <span className="chip border-emerald-500/30 bg-emerald-950/60 text-emerald-300">
+                <BookOpen className="h-3 w-3" /> ١١٤ سورة
+              </span>
+              <span className="chip border-gold-500/30 bg-gold-500/10 text-gold-300">
+                <Mic className="h-3 w-3" /> {toArabicDigits(RECITERS_LIST.length)} قارئاً
+              </span>
+              <span className="chip border-sky-500/30 bg-sky-950/60 text-sky-300">
+                <Layers className="h-3 w-3" /> {toArabicDigits(TAFSEER_OPTIONS.length)} تفاسير
+              </span>
+              <span className="chip border-fuchsia-500/30 bg-fuchsia-950/60 text-fuchsia-300">
+                <Globe className="h-3 w-3" /> {toArabicDigits(TRANSLATION_LANGUAGES.length)} لغة
+              </span>
+            </div>
             <button
               className="btn-ghost !px-3 !py-1.5 text-xs"
               onClick={() => {
@@ -497,16 +526,40 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="relative flex flex-1 items-center justify-center rounded-3xl border border-white/5 bg-[radial-gradient(ellipse_at_center,rgba(212,169,74,0.06),transparent_60%)] p-3">
+          <div
+            ref={previewWrapRef}
+            className={`preview-stage relative flex flex-1 items-center justify-center overflow-auto rounded-3xl border border-white/5 bg-[radial-gradient(ellipse_at_center,rgba(212,169,74,0.06),transparent_60%)] p-3 ${
+              isFullscreen ? "bg-night-950" : ""
+            }`}
+          >
             {(loading && !verseData) || !verseData ? (
               <div className="flex flex-col items-center gap-4 py-40">
                 <div className="h-12 w-12 animate-spin rounded-full border-4 border-gold-400 border-t-transparent" />
                 <div className="animate-pulse text-sm text-slate-400">جاري تحميل النص والتفسير المعتمد…</div>
               </div>
             ) : (
-              <QuranCanvas ref={canvasHandle} verse={verseData} design={design} langCode={langCode} />
+              <QuranCanvas ref={canvasHandle} verse={verseData} design={design} langCode={langCode} zoom={previewZoom} maxHeightVh={isFullscreen ? 90 : 72} />
             )}
             {loading && verseData && <div className="absolute left-4 top-4 h-5 w-5 animate-spin rounded-full border-2 border-gold-400 border-t-transparent" />}
+
+            {/* أدوات التكبير وملء الشاشة */}
+            {verseData && (
+              <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full border border-white/10 bg-night-950/85 px-1.5 py-1 shadow-lg backdrop-blur-md">
+                <button onClick={zoomOut} disabled={previewZoom <= 0.6} title="تصغير" className="grid h-7 w-7 place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-30">
+                  <ZoomOut className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={zoomReset} title="إعادة الحجم الطبيعي" className="min-w-[42px] rounded-full px-1.5 py-1 text-center text-[10px] font-bold text-slate-300 transition hover:bg-white/10 hover:text-white">
+                  {Math.round(previewZoom * 100)}%
+                </button>
+                <button onClick={zoomIn} disabled={previewZoom >= 1.6} title="تكبير" className="grid h-7 w-7 place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-30">
+                  <ZoomIn className="h-3.5 w-3.5" />
+                </button>
+                <span className="mx-0.5 h-4 w-px bg-white/10" />
+                <button onClick={toggleFullscreen} title={isFullscreen ? "الخروج من ملء الشاشة" : "عرض بملء الشاشة لرؤية أوضح"} className="grid h-7 w-7 place-items-center rounded-full text-gold-300 transition hover:bg-gold-500/15">
+                  {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            )}
 
             {recording && (
               <div className="absolute inset-x-6 bottom-6 rounded-2xl border border-red-500/40 bg-black/80 p-4 backdrop-blur-md">
@@ -730,13 +783,19 @@ export default function Home() {
                     <Toggle label="إظهار التفسير" checked={design.showTafseer} onChange={(v) => upd({ showTafseer: v })} />
                     <Toggle label="إظهار الترجمة" checked={design.showTranslation} onChange={(v) => upd({ showTranslation: v })} />
                   </div>
-                  {design.showTafseer && verseData?.tafseerArabic && (
+                  {design.showTafseer && (
                     <div className="max-h-40 overflow-y-auto rounded-xl border border-white/5 bg-night-950/70 p-3 text-[12px] leading-relaxed text-slate-300">
-                      <span className="mb-1 block font-bold text-gold-300">{verseData.tafseerName}</span>
-                      {verseData.tafseerArabic}
+                      <span className="mb-1 block font-bold text-gold-300">{verseData?.tafseerName || "التفسير"}</span>
+                      {loading ? (
+                        <span className="text-slate-500">جاري التحميل…</span>
+                      ) : verseData?.tafseerArabic ? (
+                        verseData.tafseerArabic
+                      ) : (
+                        <span className="text-slate-500">تعذّر تحميل التفسير لهذه الآية — تحقق من الاتصال أو جرّب تفسيراً آخر.</span>
+                      )}
                     </div>
                   )}
-                  {design.showTranslation && verseData?.translations?.[langCode] && (
+                  {design.showTranslation && (
                     <div
                       dir={getLang(langCode).rtl ? "rtl" : "ltr"}
                       className="max-h-40 overflow-y-auto rounded-xl border border-white/5 bg-night-950/70 p-3 text-[12px] italic leading-relaxed text-slate-300"
@@ -744,7 +803,13 @@ export default function Home() {
                       <span className="mb-1 block font-bold not-italic text-gold-300">
                         {getLang(langCode).nativeName} — {getLang(langCode).name}
                       </span>
-                      {verseData.translations[langCode]}
+                      {loading ? (
+                        <span className="text-slate-500">جاري التحميل…</span>
+                      ) : verseData?.translations?.[langCode] ? (
+                        verseData.translations[langCode]
+                      ) : (
+                        <span className="text-slate-500">لا تتوفر ترجمة لهذه الآية بهذا الإصدار — جرّب لغة أخرى.</span>
+                      )}
                     </div>
                   )}
                 </Section>
@@ -834,7 +899,7 @@ export default function Home() {
                   </div>
                 </Section>
 
-                <Section title="عناصر البطاقة" icon={<SlidersHorizontal className="h-4 w-4" />}>
+                <Section title="عناصر البطاقة" icon={<SlidersHorizontal className="h-4 w-4" />} defaultOpen={false}>
                   <div>
                     <label className="label">نمط الترويسة</label>
                     <Segmented value={design.headerStyle} onChange={(v) => upd({ headerStyle: v as any })} cols={4} options={[{ value: "broadcast", label: "بث" }, { value: "banner", label: "لافتة" }, { value: "minimal", label: "بسيط" }, { value: "none", label: "بدون" }]} />
@@ -917,7 +982,7 @@ export default function Home() {
                   </div>
                 </Section>
 
-                <Section title="حركة الفيديو" icon={<Sparkles className="h-4 w-4" />}>
+                <Section title="حركة الفيديو" icon={<Sparkles className="h-4 w-4" />} defaultOpen={false}>
                   <Toggle label="حركة Ken Burns للخلفية" hint="تقريب وانزياح بطيء أثناء التلاوة" checked={design.kenBurns} onChange={(v) => upd({ kenBurns: v })} />
                   <div>
                     <label className="label">دخول النص</label>

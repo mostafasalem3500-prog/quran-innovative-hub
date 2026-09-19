@@ -17,11 +17,15 @@ interface Props {
   langCode: string;
   className?: string;
   onReady?: () => void;
+  /** نسبة التكبير المرئي (لا تغيّر دقة التصدير الفعلية) */
+  zoom?: number;
+  /** أقصى ارتفاع مسموح للمعاينة كنسبة من ارتفاع الشاشة (يزداد في وضع ملء الشاشة) */
+  maxHeightVh?: number;
 }
 
 const isVideoUrl = (u: string) => /\.(mp4|webm|mov)(\?|$)/i.test(u) || u.startsWith("video:");
 
-const QuranCanvas = forwardRef<QuranCanvasHandle, Props>(function QuranCanvas({ verse, design, langCode, className, onReady }, ref) {
+const QuranCanvas = forwardRef<QuranCanvasHandle, Props>(function QuranCanvas({ verse, design, langCode, className, onReady, zoom = 1, maxHeightVh = 72 }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null);
   const rafRef = useRef<number>(0);
@@ -115,13 +119,13 @@ const QuranCanvas = forwardRef<QuranCanvasHandle, Props>(function QuranCanvas({ 
   const [pw, ph] = physicalSize(design.aspect, design.resolution);
 
   return (
-    <div className={`relative flex items-center justify-center ${className || ""}`}>
+    <div className={`relative flex items-center justify-center transition-transform duration-200 ${className || ""}`} style={{ transform: `scale(${zoom})` }}>
       <canvas
         ref={canvasRef}
         width={pw}
         height={ph}
-        className="max-h-[72vh] max-w-full rounded-2xl object-contain shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10"
-        style={{ aspectRatio: `${pw}/${ph}` }}
+        className="max-w-full rounded-2xl object-contain shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10"
+        style={{ aspectRatio: `${pw}/${ph}`, maxHeight: `${maxHeightVh}vh` }}
       />
       <span dir="ltr" className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold text-gold-300 ring-1 ring-gold-500/40">
         {pw}×{ph}

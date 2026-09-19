@@ -36,6 +36,17 @@ select, input[type="number"], input[type="text"] { color-scheme: dark; }
 select option { background: #0a1512; }
 
 .glass { background: rgba(10, 21, 18, 0.72); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid rgba(212, 169, 74, 0.12); }
+
+/* معاينة ملء الشاشة — خلفية متسقة مع هوية الموقع بدل الأسود الافتراضي للمتصفح */
+.preview-stage:fullscreen,
+.preview-stage:-webkit-full-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #0b1f18 0%, #050b0a 70%);
+  border-radius: 0;
+  padding: 24px;
+}
 .gold-text { background: linear-gradient(120deg, #f5d78e, #d4a94a 40%, #fff1c2 60%, #b8892f); -webkit-background-clip: text; background-clip: text; color: transparent; background-size: 200% auto; }
 .pattern-bg {
   background-image:
@@ -43,17 +54,22 @@ select option { background: #0a1512; }
     radial-gradient(ellipse at 80% 100%, rgba(212, 169, 74, 0.08), transparent 50%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cpath d='M40 0l8 32 32 8-32 8-8 32-8-32-32-8 32-8z' fill='none' stroke='%23d4a94a' stroke-opacity='0.06'/%3E%3C/svg%3E");
 }
-.chip { @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold; }
-.btn { @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60; }
+.chip { @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors; }
+.btn { @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60; }
 .btn-gold { @apply btn bg-gradient-to-l from-gold-600 via-gold-500 to-gold-300 text-night-950 shadow-glow hover:brightness-110 hover:scale-[1.02]; }
 .btn-emerald { @apply btn bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-950/50 hover:scale-[1.02]; }
-.btn-ghost { @apply btn bg-night-800/70 border border-white/5 text-slate-200 hover:bg-night-700 hover:border-gold-500/30; }
-.field { @apply w-full rounded-xl border border-white/10 bg-night-950/80 p-2.5 text-sm text-slate-100 focus:border-gold-500/60 focus:outline-none focus:ring-1 focus:ring-gold-500/30 transition; }
+.btn-ghost { @apply btn bg-night-800/70 border border-white/5 text-slate-200 hover:bg-night-700 hover:border-gold-500/30 hover:scale-[1.01]; }
+.field { @apply w-full rounded-xl border border-white/10 bg-night-950/80 p-2.5 text-sm text-slate-100 transition focus:border-gold-500/60 focus:outline-none focus:ring-1 focus:ring-gold-500/30; }
 .label { @apply mb-1.5 block text-[11px] font-bold tracking-wide text-slate-400; }
-.seg { @apply rounded-xl border px-2 py-2 text-xs font-bold transition text-center; }
-.seg-on { @apply seg bg-emerald-600/90 border-emerald-400/60 text-white shadow-lg shadow-emerald-950/50; }
-.seg-off { @apply seg bg-night-950/70 border-white/10 text-slate-400 hover:bg-night-800 hover:text-slate-200; }
-.card { @apply glass rounded-3xl p-5 shadow-panel; }
+.seg { @apply rounded-xl border px-2 py-2 text-xs font-bold text-center transition; }
+.seg-on { @apply seg border-emerald-400/60 bg-emerald-600/90 text-white shadow-lg shadow-emerald-950/50; }
+.seg-off { @apply seg border-white/10 bg-night-950/70 text-slate-400 hover:bg-night-800 hover:text-slate-200; }
+.card { @apply glass rounded-3xl p-5 shadow-panel transition-shadow; }
+
+/* لمسة احترافية أكثر هدوءاً: حدود ناعمة متدرّجة وفواصل أوضح بين الأقسام لتقليل الازدحام البصري */
+.card > * + * { margin-top: 0; }
+aside.card > div.flex.flex-col.gap-3 > * + * { border-top: 1px solid rgba(255, 255, 255, 0.04); padding-top: 0.75rem; }
+aside.card > div.flex.flex-col.gap-3 > *:first-child { border-top: none; padding-top: 0; }
 
 /* احترام تفضيل تقليل الحركة */
 @media (prefers-reduced-motion: reduce) {
