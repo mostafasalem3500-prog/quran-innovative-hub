@@ -18,6 +18,7 @@ import {
   randomVerseRef,
   toArabicDigits,
   clearQuranCache,
+  getLang,
 } from "@/lib/quranData";
 import { CardDesign, DEFAULT_DESIGN, THEMES, QURAN_FONTS, PRESETS, physicalSize, AspectRatio, Resolution } from "@/lib/renderer";
 import {
@@ -729,10 +730,21 @@ export default function Home() {
                     <Toggle label="إظهار التفسير" checked={design.showTafseer} onChange={(v) => upd({ showTafseer: v })} />
                     <Toggle label="إظهار الترجمة" checked={design.showTranslation} onChange={(v) => upd({ showTranslation: v })} />
                   </div>
-                  {verseData?.tafseerArabic && (
+                  {design.showTafseer && verseData?.tafseerArabic && (
                     <div className="max-h-40 overflow-y-auto rounded-xl border border-white/5 bg-night-950/70 p-3 text-[12px] leading-relaxed text-slate-300">
                       <span className="mb-1 block font-bold text-gold-300">{verseData.tafseerName}</span>
                       {verseData.tafseerArabic}
+                    </div>
+                  )}
+                  {design.showTranslation && verseData?.translations?.[langCode] && (
+                    <div
+                      dir={getLang(langCode).rtl ? "rtl" : "ltr"}
+                      className="max-h-40 overflow-y-auto rounded-xl border border-white/5 bg-night-950/70 p-3 text-[12px] italic leading-relaxed text-slate-300"
+                    >
+                      <span className="mb-1 block font-bold not-italic text-gold-300">
+                        {getLang(langCode).nativeName} — {getLang(langCode).name}
+                      </span>
+                      {verseData.translations[langCode]}
                     </div>
                   )}
                 </Section>
