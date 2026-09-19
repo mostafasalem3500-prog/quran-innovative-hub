@@ -182,18 +182,20 @@ export default function Home() {
     (v: VerseData) => {
       if (!audioRef.current) audioRef.current = new Audio();
       const a = audioRef.current;
-      const urls = [v.audioUrl, ...ayahAudioFallbacks(reciterId, v.surahNumber, v.verseNumber)];
+      const urls = Array.from(new Set([v.audioUrl, ...ayahAudioFallbacks(reciterId, v.surahNumber, v.verseNumber)]));
       let idx = 0;
       a.volume = volume;
       a.playbackRate = rate;
       a.src = urls[idx];
       a.onerror = () => {
+        // نسجّل كل مصدر فشل في الكونسول لتسهيل التشخيص لاحقاً (Network tab / Console عند المستخدم)
+        console.error("[audio] failed:", urls[idx], a.error?.code, a.error?.message);
         idx++;
         if (idx < urls.length) {
           a.src = urls[idx];
           a.play().catch(() => setIsPlaying(false));
         } else {
-          push("error", "تعذّر تحميل تلاوة هذه الآية لهذا القارئ — جرّب قارئاً آخر");
+          push("error", `تعذّر تحميل صوت هذا القارئ رغم تجربة ${urls.length} مصادر مختلفة — تحقّق من اتصال الإنترنت أو جرّب قارئاً آخر`);
           setIsPlaying(false);
         }
       };
@@ -209,7 +211,13 @@ export default function Home() {
       };
       a.play()
         .then(() => setIsPlaying(true))
-        .catch(() => setIsPlaying(false));
+        .catch((err) => {
+          console.error("[audio] play() rejected:", err?.name, err?.message);
+          setIsPlaying(false);
+          if (err?.name === "NotAllowedError") {
+            push("error", "المتصفح منع التشغيل التلقائي — اضغط زر التشغيل مباشرة لبدء الصوت");
+          }
+        });
     },
     [reciterId, volume, rate, loopVerse, continuousPlay, verseNum, meta.ayahs, push]
   );

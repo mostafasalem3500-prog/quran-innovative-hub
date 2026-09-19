@@ -141,7 +141,7 @@ export const RECITERS_LIST: Reciter[] = [
   { id: "ar.hanirifai", name: "هاني الرفاعي", style: "مرتل", bitrate: 192 },
   { id: "ar.muhammadayyoub", name: "محمد أيوب", style: "مرتل", bitrate: 128 },
   { id: "ar.muhammadjibreel", name: "محمد جبريل", style: "مرتل", bitrate: 128 },
-  { id: "ar.ibrahimakhbar", name: "إبراهيم الأخضر", style: "مرتل", bitrate: 128 },
+  { id: "ar.ibrahimakhbar", name: "إبراهيم الأخضر", style: "مرتل", bitrate: 32 },
   { id: "ar.aymanswoaid", name: "أيمن سويد", style: "مرتل", bitrate: 64 },
   { id: "ar.parhizgar", name: "شهريار برهيزكار", style: "مرتل", bitrate: 48 },
 ];
@@ -185,10 +185,17 @@ function everyayahUrl(reciterId: string, surah: number, verse: number) {
   return `https://everyayah.com/data/${folder}/${code}.mp3`;
 }
 
-/** روابط بديلة للصوت عند فشل الجودة الأصلية — تشمل مرايا على خادم مستقل لضمان الاستمرارية */
+/**
+ * روابط بديلة للصوت عند فشل الجودة الأصلية — تشمل مرايا على خادم مستقل لضمان الاستمرارية.
+ * نجرّب أولاً بِت-ريت القارئ الحقيقي (كما في RECITERS_LIST، وهو المطابق فعلياً لما يخدمه CDN
+ * لكل قارئ)، ثم بقية البتات الشائعة (32/48/64/128/192) كاحتياط لو تغيّر شيء على الخادم،
+ * ثم مرآة everyayah.com المستقلة تماماً كملاذ أخير.
+ */
 export function ayahAudioFallbacks(reciterId: string, surah: number, verse: number) {
   const g = globalAyahNumber(surah, verse);
-  const list = [128, 64, 192].map((br) => `https://cdn.islamic.network/quran/audio/${br}/${reciterId}/${g}.mp3`);
+  const r = getReciter(reciterId);
+  const bitrates = Array.from(new Set([r.bitrate, 128, 64, 192, 48, 32]));
+  const list = bitrates.map((br) => `https://cdn.islamic.network/quran/audio/${br}/${reciterId}/${g}.mp3`);
   const mirror = everyayahUrl(reciterId, surah, verse);
   if (mirror) list.push(mirror);
   return list;
