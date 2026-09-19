@@ -237,7 +237,7 @@ export const getLang = (code: string) => TRANSLATION_LANGUAGES.find((l) => l.cod
 
 // ─────────────────────────────── الخلفيات ───────────────────────────────
 // كل صور Unsplash تصل بدون قيود CORS (تدعم الرسم على Canvas والتصدير كفيديو).
-const u = (id: string) => `https://images.unsplash.com/${id}?w=2400&auto=format&fit=crop&q=80`;
+const u = (id: string) => `https://images.unsplash.com/${id}?w=3840&auto=format&fit=crop&q=82`;
 
 export const BACKGROUND_LIBRARY: BackgroundMedia[] = [
   // ── المعالم والعمارة الإسلامية ──
@@ -269,6 +269,18 @@ export const BACKGROUND_LIBRARY: BackgroundMedia[] = [
   { id: "garden", name: "حديقة خضراء", type: "image", category: "طبيعة", url: u("photo-1585320806297-9794b3e4eeae"), credit: "Unsplash" },
   { id: "palm", name: "نخيل وسماء", type: "image", category: "طبيعة", url: u("photo-1765249456442-f51badd803b4"), credit: "Unsplash" },
   { id: "dates-fruit", name: "تمر وسعف النخيل", type: "image", category: "طبيعة", url: u("photo-1785531191261-2207cb51381d"), credit: "Unsplash" },
+  { id: "sky-glow", name: "سماء متوهجة", type: "image", category: "طبيعة", url: u("photo-1506905925346-21bda4d32df4"), credit: "Unsplash" },
+  { id: "peak-mist", name: "قمة وضباب", type: "image", category: "طبيعة", url: u("photo-1470252649378-9c29740c9fa8"), credit: "Unsplash" },
+  { id: "golden-peak", name: "قمة ذهبية عند الغروب", type: "image", category: "طبيعة", url: u("photo-1470770903676-69b98201ea1c"), credit: "Unsplash" },
+  { id: "night-sky2", name: "سماء ليلية صافية", type: "image", category: "طبيعة", url: u("photo-1500534623283-312aade485b7"), credit: "Unsplash" },
+  { id: "blue-horizon", name: "أفق أزرق هادئ", type: "image", category: "طبيعة", url: u("photo-1519452575417-564c1401ecc0"), credit: "Unsplash" },
+  { id: "reflection-lake", name: "بحيرة وانعكاس", type: "image", category: "طبيعة", url: u("photo-1500964757637-c85e8a162699"), credit: "Unsplash" },
+  { id: "sunbeam-forest", name: "أشعة بين الأشجار", type: "image", category: "طبيعة", url: u("photo-1477414348463-c0eb7f1359b6"), credit: "Unsplash" },
+  { id: "hills-fog", name: "تلال ضبابية", type: "image", category: "طبيعة", url: u("photo-1478760329108-5c3ed9d495a0"), credit: "Unsplash" },
+  { id: "canyon-glow", name: "أخدود صخري وضوء", type: "image", category: "طبيعة", url: u("photo-1475724017904-b712052c192a"), credit: "Unsplash" },
+  { id: "night-city", name: "أفق ليلي بعيد", type: "image", category: "طبيعة", url: u("photo-1524055988636-436cfa46e59e"), credit: "Unsplash" },
+  { id: "green-hills", name: "تلال خضراء", type: "image", category: "طبيعة", url: u("photo-1473773508845-188df298d2d1"), credit: "Unsplash" },
+  { id: "lake-mountain", name: "بحيرة وجبال", type: "image", category: "طبيعة", url: u("photo-1490730141103-6cac27aaab94"), credit: "Unsplash" },
   { id: "mosque-sunset2", name: "مسجد عند الغروب", type: "image", category: "معالم", url: u("photo-1745863676110-e7494bf3a9ea"), credit: "Unsplash" },
   { id: "mosque-golden-hour", name: "مسجد بالساعة الذهبية", type: "image", category: "معالم", url: u("photo-1576301173659-228b963e83b2"), credit: "Unsplash" },
   { id: "mosque-marble-arches", name: "أقواس مرمرية داخلية", type: "image", category: "معالم", url: u("photo-1784400340561-270c9c240613"), credit: "Unsplash" },
@@ -296,6 +308,9 @@ export const BACKGROUND_LIBRARY: BackgroundMedia[] = [
   { id: "anim-geometry", name: "زخرفة هندسية دوارة", type: "animated", category: "متحركة", url: "anim:geometry" },
   { id: "anim-waves", name: "أمواج ضوء", type: "animated", category: "متحركة", url: "anim:waves" },
   { id: "anim-rays", name: "أشعة نور علوية", type: "animated", category: "متحركة", url: "anim:rays" },
+  { id: "anim-crescent", name: "هلال متوهج وسماء ليلية", type: "animated", category: "متحركة", url: "anim:crescent" },
+  { id: "anim-sweep", name: "شريط ضوء ذهبي متحرك", type: "animated", category: "متحركة", url: "anim:sweep" },
+  { id: "anim-embers", name: "شرر رمضاني دافئ", type: "animated", category: "متحركة", url: "anim:embers" },
 ];
 
 export const BACKGROUND_CATEGORIES = Array.from(new Set(BACKGROUND_LIBRARY.map((b) => b.category || "أخرى")));

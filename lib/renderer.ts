@@ -429,6 +429,88 @@ function drawAnimatedBackground(ctx: CanvasRenderingContext2D, W: number, H: num
       ctx.restore();
     }
     ctx.restore();
+  } else if (kind === "crescent") {
+    // هلال متوهج مع هالة نابضة ونجوم خافتة — طابع إسلامي هادئ
+    const rnd = mulberry32(19);
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * W;
+      const y = rnd() * H * 0.75;
+      const r = rnd() * 1.4 + 0.3;
+      ctx.globalAlpha = 0.25 + 0.5 * Math.abs(Math.sin(time * (0.6 + rnd()) + i));
+      ctx.fillStyle = "#FFFFFF";
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    const cx = W * 0.72;
+    const cy = H * 0.24 + Math.sin(time * 0.25) * H * 0.015;
+    const R = Math.min(W, H) * 0.11;
+    const pulse = 0.85 + 0.15 * Math.sin(time * 0.8);
+    ctx.save();
+    const halo = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 4.2 * pulse);
+    halo.addColorStop(0, "rgba(245,215,142,0.35)");
+    halo.addColorStop(0.4, "rgba(245,215,142,0.12)");
+    halo.addColorStop(1, "rgba(245,215,142,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = "#F8E7B8";
+    ctx.shadowColor = "rgba(245,215,142,0.9)";
+    ctx.shadowBlur = 40;
+    ctx.fill();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath();
+    ctx.arc(cx + R * 0.42, cy - R * 0.18, R * 0.92, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (kind === "sweep") {
+    // شريط ضوء ذهبي ينساب قطرياً فوق خلفية داكنة
+    for (let i = 0; i < 3; i++) {
+      const phase = ((time * (0.12 + i * 0.05) + i * 0.33) % 1) * (W + H) - H * 0.5;
+      ctx.save();
+      const g = ctx.createLinearGradient(phase - H, 0, phase + H, H);
+      g.addColorStop(0, "rgba(212,169,74,0)");
+      g.addColorStop(0.5, `rgba(245,215,142,${0.22 - i * 0.05})`);
+      g.addColorStop(1, "rgba(212,169,74,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+    const rnd = mulberry32(53);
+    for (let i = 0; i < 60; i++) {
+      const x = rnd() * W;
+      const y = rnd() * H;
+      const tw = 0.15 + 0.25 * Math.abs(Math.sin(time * (0.5 + rnd()) + i));
+      ctx.globalAlpha = tw;
+      ctx.fillStyle = "#D4A94A";
+      ctx.beginPath();
+      ctx.arc(x, y, rnd() * 1.6 + 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  } else if (kind === "embers") {
+    // شرر/جزيئات متوهجة صاعدة ببطء — دفء رمضاني
+    const rnd = mulberry32(88);
+    for (let i = 0; i < 70; i++) {
+      const bx = rnd() * W;
+      const by = rnd() * H;
+      const speed = 8 + rnd() * 18;
+      const yy = ((by - ((time * speed) % (H + 80))) + (H + 80)) % (H + 80);
+      const drift = Math.sin(time * 0.5 + i * 1.7) * 22;
+      const r = 1 + rnd() * 2.6;
+      const flicker = 0.3 + 0.5 * Math.abs(Math.sin(time * 3 + i));
+      ctx.globalAlpha = flicker;
+      ctx.fillStyle = i % 4 === 0 ? "#F5D78E" : "#E8843A";
+      ctx.shadowColor = "rgba(232,132,58,0.8)";
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(bx + drift, yy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
   }
 
   // فينيت خفيف موحّد لكل الخلفيات المتحركة

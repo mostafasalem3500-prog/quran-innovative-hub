@@ -13,11 +13,19 @@
 html { scroll-behavior: smooth; }
 body { margin: 0; background: #050b0a; color: #e6efe9; }
 
-/* Scrollbars */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1d3a2f; border-radius: 999px; border: 2px solid #050b0a; }
-::-webkit-scrollbar-thumb:hover { background: #2b5646; }
+/* Scrollbars — المعيار الحديث أولاً، مع دعم احتياطي لمتصفحات WebKit القديمة */
+* {
+  --scrollbar-thumb: #2b5646;
+  --scrollbar-track: transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+  ::-webkit-scrollbar-thumb { background: #1d3a2f; border-radius: 999px; border: 2px solid #050b0a; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb); }
+}
 
 /* Range inputs */
 input[type="range"] { -webkit-appearance: none; width: 100%; height: 6px; border-radius: 999px; background: linear-gradient(90deg, #d4a94a var(--pct, 50%), #1a2b25 var(--pct, 50%)); outline: none; }
@@ -46,3 +54,13 @@ select option { background: #0a1512; }
 .seg-on { @apply seg bg-emerald-600/90 border-emerald-400/60 text-white shadow-lg shadow-emerald-950/50; }
 .seg-off { @apply seg bg-night-950/70 border-white/10 text-slate-400 hover:bg-night-800 hover:text-slate-200; }
 .card { @apply glass rounded-3xl p-5 shadow-panel; }
+
+/* احترام تفضيل تقليل الحركة */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

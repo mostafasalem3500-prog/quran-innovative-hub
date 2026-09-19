@@ -861,7 +861,7 @@ export default function Home() {
                                 ? { background: `linear-gradient(135deg, ${bg.url.slice(9)})` }
                                 : bg.type === "animated"
                                 ? { background: "linear-gradient(120deg, #1a0b2e, #2d1b4e, #0b3d2e, #1a0b2e)", backgroundSize: "300% 300%", animation: "bgShift 6s ease infinite" }
-                                : { backgroundImage: `url(${bg.url.replace("w=2400", "w=400")})`, backgroundSize: "cover", backgroundPosition: "center" }
+                                : { backgroundImage: `url(${bg.url.replace(/w=\d+/, "w=400")})`, backgroundSize: "cover", backgroundPosition: "center" }
                             }
                           >
                             {bg.type === "animated" && <Sparkles className="absolute right-2 top-1.5 h-3.5 w-3.5 text-gold-300 drop-shadow" />}
