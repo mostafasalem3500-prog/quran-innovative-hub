@@ -184,8 +184,10 @@ export default function Home() {
       const a = audioRef.current;
       const urls = Array.from(new Set([v.audioUrl, ...ayahAudioFallbacks(reciterId, v.surahNumber, v.verseNumber)]));
       let idx = 0;
-      a.volume = volume;
-      a.playbackRate = rate;
+      // حماية إضافية: audio.volume/playbackRate يرفضان أي قيمة غير رقم منتهٍ (NaN مثلاً) برمي
+      // استثناء يوقف التشغيل بالكامل — لا نمرّر القيمة المخزّنة مباشرة دون التحقق من صحتها.
+      a.volume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1;
+      a.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
       a.src = urls[idx];
       a.onerror = () => {
         // نسجّل كل مصدر فشل في الكونسول لتسهيل التشخيص لاحقاً (Network tab / Console عند المستخدم)
@@ -234,8 +236,8 @@ export default function Home() {
 
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = volume;
-      audioRef.current.playbackRate = rate;
+      audioRef.current.volume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1;
+      audioRef.current.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
     }
   }, [volume, rate]);
 

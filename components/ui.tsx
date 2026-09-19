@@ -180,14 +180,35 @@ export function Toasts({ items, onClose }: { items: ToastItem[]; onClose: (id: n
   );
 }
 
-/** حفظ حالة في localStorage */
+/**
+ * حفظ حالة في localStorage.
+ * ملاحظة مهمة: لا يصحّ دمج القيمة المخزَّنة بـ `{ ...initial, ...parsed }` دائماً — هذا الدمج
+ * صحيح فقط عندما تكون الحالة كائناً (object)، أما مع القيم البسيطة (رقم/نص/منطقي) مثل
+ * مستوى الصوت أو معرّف القارئ فإن `{ ...1 }` أو `{ ...true }` في JS ينتج كائناً فارغاً `{}`
+ * (لأن الأرقام والمنطقيات لا تملك خصائص قابلة للتعداد) — وهذا ما كان يُفسد `qh:volume` إلى
+ * `{}` بدل رقم، فيسقط `audio.volume = NaN` بخطأ يمنع تشغيل الصوت بالكامل من الأساس، ويُعاد
+ * كتابة الفساد نفسه عند كل حفظ لاحق. الإصلاح: ندمج فقط عندما تكون القيمتان كائنَين حقيقيَّين،
+ * ونتحقّق من تطابق النوع (`typeof`) مع القيمة الافتراضية قبل قبول أي قيمة أخرى غير ذلك.
+ */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 export function useLocalState<T>(key: string, initial: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState<T>(initial);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     try {
       const raw = localStorage.getItem(key);
-      if (raw) setState({ ...initial, ...JSON.parse(raw) });
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (isPlainObject(parsed) && isPlainObject(initial)) {
+          setState({ ...initial, ...parsed } as T);
+        } else if (typeof parsed === typeof initial) {
+          setState(parsed as T);
+        }
+        // أي نوع مختلف (قيمة تالفة/قديمة) يُتجاهل، وتبقى القيمة الافتراضية سارية.
+      }
     } catch {}
     setLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
