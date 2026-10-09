@@ -1,0 +1,13 @@
+import {test,after} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';
+process.env.NODE_ENV='test';const {server,validRef,validateRows,tafsirs,catalogue}=await import('../server.mjs');
+const rows=JSON.parse(await fs.readFile(new URL('../data/somali_yacob-1.json',import.meta.url))).result;
+test('verse boundaries are checked against surah length',()=>{assert.ok(validRef(2,286));assert.ok(validRef(114,6));for(const [s,a] of [[0,1],[115,1],[114,7],[2,287],[1,1.5]])assert.equal(validRef(s,a),false)});
+test('source text remains untouched after validation',()=>{const input=structuredClone(rows);validateRows(input,1);assert.deepEqual(input,rows)});
+test('rejects missing, duplicated and misaligned verses',()=>{assert.throws(()=>validateRows(rows.slice(1),1));const bad=structuredClone(rows);bad[2].aya='2';assert.throws(()=>validateRows(bad,1));const wrong=structuredClone(rows);wrong[0].sura='2';assert.throws(()=>validateRows(wrong,1))});
+test('only the six requested vetted tafsir editions are exposed',()=>{assert.equal(Object.keys(tafsirs).length,6);assert.ok(tafsirs.kathir);assert.ok(tafsirs.jalalayn);assert.ok(tafsirs.qurtubi);assert.ok(tafsirs.mukhtasar);assert.equal(tafsirs.en_kathir.lang,'en')});
+test('PDF destinations are restricted to known publication hosts',()=>{for(const b of catalogue.filter(x=>x.type==='pdf'))assert.ok(['d1.islamhouse.com','quranenc.com'].includes(new URL(b.url).hostname))});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+for(const route of ['/api/surah?s=115','/api/surah?s=1&en=bad','/api/tafsir?s=1&a=8&id=kathir','/api/tafsir?s=1&a=1&id=bad'])test('reject '+route,async()=>assert.equal((await fetch(base+route)).status,400));
+test('arbitrary PDF URL cannot be proxied',async()=>assert.equal((await fetch(base+'/api/pdf/https://example.com')).status,404));
+test('health and metadata routes work',async()=>{assert.equal((await fetch(base+'/health')).status,200);assert.equal((await (await fetch(base+'/api/surahs')).json()).length,114)});
+after(()=>server.close());

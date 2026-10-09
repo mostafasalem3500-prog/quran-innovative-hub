@@ -1,0 +1,95 @@
+{
+  "checkedAt": "2026-10-09",
+  "scope": "sampled endpoints, not complete scholarly verification",
+  "results": [
+    {
+      "url": "https://quranenc.com/api/v1/translation/sura/somali_yacob/2",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "verses": 286,
+      "alignment": "pass",
+      "sha256": "011be57b704ea57e0d5b77868c463d0bc33b88e74e4563e641bcb00f99cc789e"
+    },
+    {
+      "url": "https://quranenc.com/api/v1/translation/sura/english_rwwad/2",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "verses": 286,
+      "alignment": "pass",
+      "sha256": "654b4f611120be401e5bbd27af5506326fe36c67b788a3d6847ba9cf3a8e83ed"
+    },
+    {
+      "url": "https://quranenc.com/api/v1/translation/sura/somali_yacob/114",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "verses": 6,
+      "alignment": "pass",
+      "sha256": "67528a55399aceed2409db3d50a52a93f5eaa3d3c53be5582d6b48fffa15ac4c"
+    },
+    {
+      "url": "https://d.quranenc.com/data/audio/somali_yacob/001001.mp3",
+      "status": 200,
+      "contentType": "audio/mpeg"
+    },
+    {
+      "url": "https://d.quranenc.com/data/audio/english_rwwad/001001.mp3",
+      "status": 200,
+      "contentType": "audio/mpeg"
+    },
+    {
+      "url": "https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3",
+      "status": 200,
+      "contentType": "audio/mpeg"
+    },
+    {
+      "url": "https://d1.islamhouse.com/data/so/ih_books/single/so_the_rulings_of_the_tajweed.pdf",
+      "error": "HTTP Error 403: Forbidden"
+    },
+    {
+      "url": "https://d1.islamhouse.com/data/so/ih_books/single/so_quraanka_Kariimka_Iyo_Tarjamada_Macnihiisa_Ee_Afka_Soomaaliga.pdf",
+      "error": "HTTP Error 403: Forbidden"
+    },
+    {
+      "url": "https://quranenc.com/downloads/pdf/english_rwwad.pdf",
+      "status": 200,
+      "contentType": "application/pdf",
+      "pdfSignature": "pass"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/spa5k/tafsir_api/eb82bb6294efe30ad5c135c03b1864afaa70e855/tafsir/ar-tafsir-al-mukhtasar/1/1.json",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "text": "present"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/spa5k/tafsir_api/eb82bb6294efe30ad5c135c03b1864afaa70e855/tafsir/ar-tafsir-ibn-kathir/1/1.json",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "text": "present"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/spa5k/tafsir_api/eb82bb6294efe30ad5c135c03b1864afaa70e855/tafsir/ar-tafseer-al-qurtubi/1/1.json",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "text": "present"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/spa5k/tafsir_api/eb82bb6294efe30ad5c135c03b1864afaa70e855/tafsir/ar-tafsir-al-jalalayn/1/1.json",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "text": "present"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/spa5k/tafsir_api/eb82bb6294efe30ad5c135c03b1864afaa70e855/tafsir/en-tafisr-ibn-kathir/1/1.json",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "text": "present"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/spa5k/tafsir_api/eb82bb6294efe30ad5c135c03b1864afaa70e855/tafsir/en-tafsir-al-mukhtasar/1/1.json",
+      "status": 200,
+      "contentType": "text/plain; charset=utf-8",
+      "text": "present"
+    }
+  ]
+}
